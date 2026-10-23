@@ -1,0 +1,12 @@
+{
+  "name": "civil-eng-infra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AWS CDK app for the Civil Eng chat backend",
+  "scripts": {
+    "deploy": "cdk deploy --all --profile civil-eng"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2"
+  }
+}

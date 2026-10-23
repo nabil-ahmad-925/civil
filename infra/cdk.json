@@ -1,0 +1,25 @@
+{
+  "app": ".venv/bin/python app.py",
+  "watch": {
+    "include": [
+      "**"
+    ],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "requirements*.txt",
+      ".venv",
+      "cdk.out",
+      "tests",
+      "**/__pycache__"
+    ]
+  },
+  "context": {
+    "cors_origins": [
+      "http://localhost:3000"
+    ],
+    "chat_model": "gpt-4.1-mini",
+    "api_throttle_rate": 10,
+    "api_throttle_burst": 20
+  }
+}

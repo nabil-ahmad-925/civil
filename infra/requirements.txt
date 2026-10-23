@@ -1,0 +1,4 @@
+aws-cdk-lib>=2.170,<3
+constructs>=10.4,<11
+boto3>=1.35
+pytest>=8

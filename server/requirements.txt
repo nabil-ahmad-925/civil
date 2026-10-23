@@ -1,0 +1,7 @@
+fastapi>=0.143
+uvicorn[standard]>=0.54
+pydantic-settings>=2.16
+supabase>=2.32
+pymupdf>=1.28
+httpx>=0.28
+pytest>=9.0

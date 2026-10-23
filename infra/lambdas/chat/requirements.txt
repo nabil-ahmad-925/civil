@@ -1,0 +1,5 @@
+# Packed into the chat Lambda. No fastapi, uvicorn or pymupdf: those are for the ingest server.
+httpx>=0.28
+pydantic>=2.9
+pydantic-settings>=2.6
+supabase>=2.32
