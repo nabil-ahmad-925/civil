@@ -106,3 +106,28 @@ def test_a_model_failure_is_a_502_without_details(h):
 
 def test_health_needs_no_key(h):
     assert h.health({}, None)["statusCode"] == 200
+
+
+def test_the_paradedb_backend_without_its_connection_string_is_a_clear_500(h, monkeypatch):
+    from app.config import get_settings
+
+    for key in ("OPENAI_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "PARADEDB_URL"):
+        monkeypatch.setenv(key, "")  # put back afterwards: deps() writes the secret's values into the environment
+    monkeypatch.setenv("KEYWORD_BACKEND", "paradedb")
+    get_settings.cache_clear()
+    h.common.state.pop("deps")
+    h.common.state["secrets"] = {"CHAT_API_KEY": "k3y", "OPENAI_API_KEY": "o", "SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "s"}
+    try:
+        status, body = call(h.chat, {"message": "hello there"})
+    finally:
+        get_settings.cache_clear()
+    assert status == 500 and "PARADEDB_URL" in body["error"]
+
+
+def test_the_optional_paradedb_url_is_kept_when_the_secret_is_read_and_unknown_keys_are_not(h, monkeypatch):
+    secret = {"CHAT_API_KEY": "k3y", "OPENAI_API_KEY": "o", "PARADEDB_URL": "postgresql://u:p@h/db", "SOMETHING_ELSE": "x"}
+    fake_boto3 = SimpleNamespace(client=lambda name: SimpleNamespace(get_secret_value=lambda SecretId: {"SecretString": json.dumps(secret)}))
+    monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
+    monkeypatch.setenv("SECRET_ARN", "arn:test")
+    h.common.state.pop("secrets")
+    assert h.common.secrets() == {"CHAT_API_KEY": "k3y", "OPENAI_API_KEY": "o", "PARADEDB_URL": "postgresql://u:p@h/db"}

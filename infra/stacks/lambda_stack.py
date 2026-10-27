@@ -37,6 +37,9 @@ class LambdaStack(Stack):
             "EMBEDDING_MODEL": ctx("embedding_model") or "text-embedding-3-small",
             "EMBEDDING_DIM": str(ctx("embedding_dim") or 1536),
             "CHAT_MODEL": ctx("chat_model") or "gpt-4.1-mini",
+            # "paradedb" once the ParadeDB database is set up and PARADEDB_URL is in the secret
+            # (cdk deploy -c keyword_backend=paradedb); see server/docs/INGESTION_FLOW.md, "ParadeDB".
+            "KEYWORD_BACKEND": ctx("keyword_backend") or "fts",
         }
 
         def function(name: str, spec: LambdaSpec, timeout: int, memory: int, configured: bool = True) -> lambda_.Function:

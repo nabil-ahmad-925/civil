@@ -5,3 +5,4 @@ supabase>=2.32
 pymupdf>=1.28
 httpx>=0.28
 pytest>=9.0
+psycopg[binary]>=3.2

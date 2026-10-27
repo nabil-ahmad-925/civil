@@ -1,10 +1,11 @@
 """Finds the sections that answer a question, then brings along what they link to. Used by the chat Lambda.
 
-1. Three searches run side by side and their lists are merged (reciprocal rank fusion), so a question does not have to be
-   phrased in any particular way:
+1. Three searches run at the same time, each over every section (none narrows the others), and their lists are merged
+   (reciprocal rank fusion), so a question does not have to be phrased in any particular way:
      meaning    the question is embedded; nearest sections by cosine similarity (finds paraphrases)
-     keywords   the words of the question, stemmed, in the section text; extra when the exact phrase is there
-                (finds a name such as "Master Topographic File" that meaning-search ranks low)
+     keywords   the words of the question in the section text, rare words counting more (finds a name such as
+                "Master Topographic File" that meaning-search ranks low). Either full-text rank with an exact-phrase
+                bonus, or BM25 (KEYWORD_BACKEND); the scores of the two are on different scales
      heading    a section number ("1-1.8") or a heading typed in full or in part (finds "§1-1.8 Content and
                 Development of Electronic Files" exactly)
    The merged top sections are the HITS; each says which searches found it (`matched_by`).
@@ -16,6 +17,7 @@ Only references that were resolved to a real node or figure are followed. A link
 hit is marked `also_hit` so the caller does not show it twice.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -33,6 +35,7 @@ WEIGHTS = {"meaning": 1.0, "keywords": 1.0, "heading": 2.0}
 EXACT_BONUS = 1.0
 # A keyword rank from this up means a meaningful word of the question is in the section. A question about something
 # the manuals never mention matches no section at all, so any match is real evidence; the model still judges the answer.
+# This is the value for the full-text rank (0..2); Settings.keyword_min_score gives the one that fits the backend in use.
 KEYWORD_RELEVANT = 0.3
 # Of the keyword matches only those near the best one count: the OR-search also returns sections sharing a single
 # common word, and those must not push out the sections that hold the rare words.
@@ -90,12 +93,12 @@ def _paths(repo: Repository, nodes: list[Node]) -> dict[str, list[str]]:
     return out
 
 
-def is_relevant(hit: Hit, min_score: float) -> bool:
+def is_relevant(hit: Hit, min_score: float, keyword_min: float = KEYWORD_RELEVANT) -> bool:
     """Whether a hit is worth answering from: close in meaning, or its heading was named, or its text has the words."""
     return (
         (hit.score is not None and hit.score >= min_score)
         or (hit.heading_score is not None and hit.heading_score >= 0.8)
-        or (hit.keyword_rank is not None and hit.keyword_rank >= KEYWORD_RELEVANT)
+        or (hit.keyword_rank is not None and hit.keyword_rank >= keyword_min)
     )
 
 
@@ -113,17 +116,28 @@ def _fuse(lists: dict[str, list[tuple[str, float]]]) -> list[tuple[str, float]]:
     return sorted(fused.items(), key=lambda s: s[1], reverse=True)
 
 
+def _run_searches(
+    repo: Repository, embedder: Embedder, query: str, pool: int, manual: Manual | None
+) -> tuple[list[tuple[str, float]], list[tuple[str, float]], list[tuple[str, float]]]:
+    """(keywords, meaning, heading) at the same time: each is a network round trip, and none needs another's answer."""
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        keywords = executor.submit(repo.match_nodes_text, query, pool, manual)
+        meaning = executor.submit(lambda: repo.match_nodes(embedder.embed([query])[0], pool, manual))
+        heading = executor.submit(repo.match_nodes_title, query, pool, manual)
+        return keywords.result(), meaning.result(), heading.result()
+
+
 def search(
     repo: Repository, embedder: Embedder, query: str, k: int = 5, manual: Manual | None = None, expand: bool = True
 ) -> list[Hit]:
     k = max(1, min(k, MAX_K))
     pool = max(k * 3, 15)  # candidates taken from each search before merging
-    keywords = repo.match_nodes_text(query, pool, manual)
+    keywords, meaning, heading = _run_searches(repo, embedder, query, pool, manual)
     best = max((v for _, v in keywords), default=0.0)
     lists = {
-        "meaning": repo.match_nodes(embedder.embed([query])[0], pool, manual),
+        "meaning": meaning,
         "keywords": [(i, v) for i, v in keywords if v >= best * KEYWORD_KEEP],
-        "heading": repo.match_nodes_title(query, pool, manual),
+        "heading": heading,
     }
     ranked = _fuse(lists)[:k]
     if not ranked:

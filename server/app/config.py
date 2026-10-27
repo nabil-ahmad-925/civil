@@ -41,11 +41,30 @@ class Settings(BaseSettings):
     chat_context_chars: int = 24000  # text kept over all sources in the prompt
     chat_history_messages: int = 6
     figure_url_seconds: int = 3600
+    # Optional. When set, POST /api/chat needs it in the x-api-key header (the Next.js server sends CHAT_API_KEY from
+    # client/.env.local). Empty means open, which is only safe while the server listens on your own machine.
+    chat_api_key: str = ""
+
+    # Who answers the keyword search: "fts" is the full-text function in Supabase (sql/004_hybrid_search.sql); "paradedb" is
+    # BM25 on a separate ParadeDB database (sql/paradedb/, needs PARADEDB_URL), because Supabase has no pg_search.
+    keyword_backend: Literal["fts", "paradedb"] = "fts"
+    # Postgres connection string of that database, e.g. postgresql://user:password@host:5432/nodes_search?sslmode=require
+    paradedb_url: str = ""
+    # The smallest keyword score that counts as evidence a section holds the question's words. "fts" scores run from 0 to 2;
+    # BM25 scores (averaged over the question's words) have no upper bound, so they have their own value. 4.0 keeps the best
+    # hit of every real question tried on the HDM and PPM (5 to 16) and drops most off-topic ones (under 4). It was measured
+    # with the in-memory BM25; ParadeDB's own scores for the same questions were within a few percent of it.
+    keyword_min_score_fts: float = 0.3
+    keyword_min_score_bm25: float = 4.0
 
     embedding_provider: Literal["none", "openai"] = "none"
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = 1536
     openai_api_key: str = ""
+
+    @property
+    def keyword_min_score(self) -> float:
+        return self.keyword_min_score_bm25 if self.keyword_backend == "paradedb" else self.keyword_min_score_fts
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -1,14 +1,30 @@
 """In-memory repository for tests and for trying the API with no Supabase."""
 
+import math
 import re
 import threading
+from collections import Counter
 from pathlib import Path
 
 from ..models import CrossRef, Document, Figure, ManualTable, Node, NodeCondition, NodeSummary, RefStatus
+from .keywords import STOP_WORDS, keyword_terms
+
+# BM25 constants (the usual ones) and how much more a word in the heading counts than one in the text. The SQL in
+# sql/paradedb/001_nodes_bm25.sql uses the same title weight.
+BM25_K1 = 1.2
+BM25_B = 0.75
+TITLE_BOOST = 2.0
+
+
+def _stem(word: str) -> str:
+    """A crude stand-in for the English stemmer of the real index ("standards" and "standard" match)."""
+    return word.rstrip("s") if len(word) > 3 else word
 
 
 class MemoryRepository:
-    def __init__(self) -> None:
+    def __init__(self, keyword_backend: str = "fts") -> None:
+        # "fts" mimics sql/004_hybrid_search.sql, "paradedb" mimics the BM25 of sql/paradedb/001_nodes_bm25.sql.
+        self.keyword_backend = keyword_backend
         self._lock = threading.RLock()
         self.documents: dict[str, Document] = {}
         self.files: dict[str, bytes] = {}
@@ -200,18 +216,47 @@ class MemoryRepository:
         ]
         return sorted(scored, key=lambda s: s[1], reverse=True)[:k]
 
-    # Stand-ins for the SQL functions in sql/004_hybrid_search.sql: same idea, plain Python.
-    _STOP = frozenset(
-        "a an and are as at be by can do does for from how i in is it of on or the to what when where which who with you "
-        "want know tell show give get got need look find please explain describe description article info information "
-        "question answer section chapter page topic mention mentioned refer referred locate say said".split()
-    )
+    # Stand-ins for the SQL functions in sql/004_hybrid_search.sql and sql/paradedb/001_nodes_bm25.sql: same idea, plain Python.
+    _STOP = STOP_WORDS
 
     @staticmethod
     def _words(text: str) -> list[str]:
         return re.findall(r"[a-z0-9]+", text.lower())
 
+    def _bm25_field(self, tokens: dict[str, list[str]], terms: set[str]) -> dict[str, float]:
+        """BM25 of one field (title or text) for every node that has a term in it. Statistics cover all nodes."""
+        counts = {i: Counter(t) for i, t in tokens.items()}
+        average = (sum(len(t) for t in tokens.values()) / len(tokens)) or 1.0
+        scores: dict[str, float] = {}
+        for term in terms:
+            holders = [i for i, c in counts.items() if term in c]
+            if not holders:
+                continue
+            idf = math.log(1 + (len(tokens) - len(holders) + 0.5) / (len(holders) + 0.5))
+            for i in holders:
+                tf = counts[i][term]
+                norm = BM25_K1 * (1 - BM25_B + BM25_B * len(tokens[i]) / average)
+                scores[i] = scores.get(i, 0.0) + idf * tf * (BM25_K1 + 1) / (tf + norm)
+        return scores
+
+    def _match_nodes_bm25(self, query: str, k: int, manual: str | None) -> list[tuple[str, float]]:
+        terms = {_stem(w) for w in keyword_terms(query)}
+        if not terms:
+            return []
+        nodes = list(self.nodes.values())
+        in_text = self._bm25_field({n.id: [_stem(w) for w in self._words(n.text)] for n in nodes}, terms)
+        in_title = self._bm25_field({n.id: [_stem(w) for w in self._words(n.title)] for n in nodes}, terms)
+        wanted = {n.id for n in nodes if manual is None or n.manual == manual}
+        # Averaged over the question's words, so a longer question does not score higher just for having more of them.
+        scored = {
+            i: (in_text.get(i, 0.0) + TITLE_BOOST * in_title.get(i, 0.0)) / len(terms)
+            for i in wanted & (in_text.keys() | in_title.keys())
+        }
+        return sorted(scored.items(), key=lambda s: (-s[1], s[0]))[:k]
+
     def match_nodes_text(self, query: str, k: int, manual: str | None = None) -> list[tuple[str, float]]:
+        if self.keyword_backend == "paradedb":
+            return self._match_nodes_bm25(query, k, manual)
         terms = {w.rstrip("s") for w in self._words(query) if w not in self._STOP}
         phrase = " ".join(self._words(query))
         scored = []

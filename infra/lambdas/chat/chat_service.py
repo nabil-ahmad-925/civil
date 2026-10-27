@@ -194,7 +194,7 @@ def answer_question(
     locate = asks_where(message)
     top_k = settings.chat_locate_top_k if locate else settings.chat_top_k
     hits = search(repo, embedder, _search_query(message, history), top_k, manual, expand=True)
-    hits = [h for h in hits if is_relevant(h, settings.chat_min_score)]
+    hits = [h for h in hits if is_relevant(h, settings.chat_min_score, settings.keyword_min_score)]
     if not hits:
         return ChatAnswer(NOT_COVERED, False, [])
 

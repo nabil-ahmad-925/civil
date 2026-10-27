@@ -25,7 +25,8 @@ PYTHON_VERSION = "3.13"
 # What each function imports from server/app. The PDF reading, chunking and FastAPI parts stay out of every package.
 _BASE = [
     "__init__.py", "config.py", "models.py",
-    "repository/__init__.py", "repository/base.py", "repository/memory.py", "repository/supabase_repo.py",
+    "repository/__init__.py", "repository/base.py", "repository/keywords.py", "repository/memory.py",
+    "repository/paradedb.py", "repository/supabase_repo.py",
     "ingestion/__init__.py", "ingestion/embeddings.py",
 ]
 

@@ -77,6 +77,7 @@ In `cdk.json` `context`, or per deploy with `-c name=value`:
 | --- | --- | --- |
 | `cors_origins` | `["http://localhost:3000"]` | Allowed browser origins (`-c cors_origins=https://a.com,https://b.com`) |
 | `chat_model` | `gpt-4.1-mini` | Model that writes the answer |
+| `keyword_backend` | `fts` | `paradedb` for BM25 on a separate ParadeDB database; needs `PARADEDB_URL` in the secret (see `server/docs/INGESTION_FLOW.md`, ParadeDB) |
 | `api_throttle_rate` / `api_throttle_burst` | 10 / 20 | Requests per second the API accepts |
 
 Retrieval knobs (`CHAT_TOP_K`, `CHAT_MIN_SCORE`, ...) are fields of `server/app/config.py`; set them as Lambda

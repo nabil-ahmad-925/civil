@@ -21,6 +21,7 @@ MAX_HISTORY = 20
 MAX_HISTORY_CHARS = 4000
 MANUALS = ("PPM", "HDM", "CADD")
 SECRET_KEYS = ("OPENAI_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "CHAT_API_KEY")
+OPTIONAL_SECRET_KEYS = ("PARADEDB_URL",)  # only needed when KEYWORD_BACKEND=paradedb
 
 state: dict[str, Any] = {}
 
@@ -37,7 +38,7 @@ def secrets() -> dict[str, str]:
         import boto3  # in the Lambda runtime already
 
         raw = boto3.client("secretsmanager").get_secret_value(SecretId=os.environ["SECRET_ARN"])["SecretString"]
-        state["secrets"] = {k: v for k, v in json.loads(raw).items() if k in SECRET_KEYS and v}
+        state["secrets"] = {k: v for k, v in json.loads(raw).items() if k in (*SECRET_KEYS, *OPTIONAL_SECRET_KEYS) and v}
     return state["secrets"]
 
 
@@ -48,14 +49,16 @@ def deps():
         missing = [k for k in SECRET_KEYS if k not in found]
         if missing:
             raise HttpError(500, f"The secret is missing: {', '.join(missing)}. Run infra/scripts/set_secrets.py.")
-        os.environ.update({k: found[k] for k in SECRET_KEYS if k != "CHAT_API_KEY"})
+        os.environ.update({k: v for k, v in found.items() if k != "CHAT_API_KEY"})
         from app.config import get_settings
         from app.ingestion.embeddings import OpenAIEmbedder
         from app.repository.supabase_repo import SupabaseRepository
 
         s = get_settings()
+        if s.keyword_backend == "paradedb" and not s.paradedb_url:
+            raise HttpError(500, "KEYWORD_BACKEND is paradedb but the secret has no PARADEDB_URL. Run infra/scripts/set_secrets.py.")
         state["deps"] = (
-            SupabaseRepository(s.supabase_url, s.supabase_service_role_key, s.storage_bucket),
+            SupabaseRepository(s.supabase_url, s.supabase_service_role_key, s.storage_bucket, s.keyword_backend, s.paradedb_url),
             OpenAIEmbedder(s.openai_api_key, s.embedding_model, s.embedding_dim),
             s,
         )

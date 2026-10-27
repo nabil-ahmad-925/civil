@@ -7,6 +7,8 @@ from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 from ..models import CrossRef, Document, Figure, ManualTable, Node, NodeCondition, NodeSummary, RefStatus
+from .keywords import keyword_terms
+from .paradedb import ParadeDbKeywordSearch
 
 log = logging.getLogger(__name__)
 
@@ -27,11 +29,21 @@ def _chunks(items: list, size: int):
 
 
 class SupabaseRepository:
-    def __init__(self, url: str, service_role_key: str, bucket: str) -> None:
+    # Who answers the keyword search: "fts" (the SQL function of sql/004_hybrid_search.sql, in Supabase) or "paradedb"
+    # (BM25 on a separate ParadeDB database).
+    keyword_backend = "fts"
+    keyword_search: ParadeDbKeywordSearch | None = None
+
+    def __init__(
+        self, url: str, service_role_key: str, bucket: str, keyword_backend: str = "fts", paradedb_url: str = ""
+    ) -> None:
         if not url or not service_role_key:
             raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set (see .env.example).")
         self.client: Client = create_client(url, service_role_key)
         self.bucket = bucket
+        self.keyword_backend = keyword_backend
+        if keyword_backend == "paradedb":
+            self.keyword_search = ParadeDbKeywordSearch(paradedb_url)
 
     def _table(self, name: str):
         return self.client.table(name)
@@ -226,13 +238,18 @@ class SupabaseRepository:
         try:
             rows = self.client.rpc(name, {"query_text": query, "match_count": k, "filter_manual": manual}).execute().data
         except APIError as exc:
-            if exc.code == "PGRST202":  # sql/004_hybrid_search.sql has not been run: search falls back to meaning only
-                log.warning("%s is missing in the database; run sql/004_hybrid_search.sql", name)
+            if exc.code == "PGRST202":  # its SQL has not been run: that search returns nothing, the others carry on
+                log.error("%s is missing in the database; run sql/004_hybrid_search.sql", name)
                 return []
             raise
         return [(r["id"], float(r[column])) for r in rows]
 
     def match_nodes_text(self, query: str, k: int, manual: str | None = None) -> list[tuple[str, float]]:
+        if self.keyword_backend == "paradedb":
+            terms = keyword_terms(query)  # the filler of a question would get a high weight: it is rare in the manuals
+            if not terms or self.keyword_search is None:
+                return []
+            return self.keyword_search.match(" ".join(terms), k, manual)
         return self._rpc_list("match_nodes_text", query, k, manual, "rank")
 
     def match_nodes_title(self, query: str, k: int, manual: str | None = None) -> list[tuple[str, float]]:

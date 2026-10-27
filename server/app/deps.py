@@ -14,8 +14,8 @@ from .repository.supabase_repo import SupabaseRepository
 def get_repo() -> Repository:
     s = get_settings()
     if s.repository == "memory":
-        return MemoryRepository()
-    return SupabaseRepository(s.supabase_url, s.supabase_service_role_key, s.storage_bucket)
+        return MemoryRepository(s.keyword_backend)
+    return SupabaseRepository(s.supabase_url, s.supabase_service_role_key, s.storage_bucket, s.keyword_backend, s.paradedb_url)
 
 
 @lru_cache

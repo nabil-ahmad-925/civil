@@ -1,0 +1,46 @@
+# ParadeDB for the deployed chat: reachable over the network, TLS required, ready to use on first start.
+# For a test environment on a small server (a VPS, or any machine with Docker and a public address). ParadeDB's own docs
+# call the Community image suitable for development and staging; for production they point to ParadeDB Enterprise.
+#
+#   1. a certificate (self-signed is enough for `sslmode=require`; use a real one to verify the server):
+#        mkdir -p certs && openssl req -new -x509 -days 825 -nodes -subj "/CN=YOUR-HOST" -keyout certs/server.key -out certs/server.crt
+#   2. a password:       export PARADEDB_PASSWORD="$(openssl rand -base64 33 | tr -d '/+=')"   (keep it: it goes into PARADEDB_URL)
+#   3. start:            docker compose -f docker-compose.server.yml up -d
+#   4. open port 5432 to the internet in the server's firewall / security group (see docs/INGESTION_FLOW.md, "ParadeDB")
+#   5. PARADEDB_URL=postgresql://search:PASSWORD@YOUR-HOST:5432/nodes_search?sslmode=require
+#
+# Plain (non-TLS) connections are refused by pg_hba.conf. sql/paradedb/001_nodes_bm25.sql runs on the first start only.
+# Settings: PARADEDB_USER (search), PARADEDB_PORT (5432), PARADEDB_BIND (0.0.0.0: set 127.0.0.1 to keep it local).
+name: civileng-paradedb
+services:
+  paradedb:
+    image: paradedb/paradedb:latest # for anything lasting, pin a version tag
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PARADEDB_USER:-search}
+      POSTGRES_PASSWORD: ${PARADEDB_PASSWORD:?set PARADEDB_PASSWORD to a long random password}
+      POSTGRES_DB: nodes_search
+    # Postgres refuses a private key that others can read or that another user owns, whoever owns the mounted file:
+    # so the certificate is copied to where the postgres user owns it, on every start.
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        install -d -m 755 /etc/paradedb/tls
+        install -m 644 /certs/server.crt /etc/paradedb/tls/server.crt
+        install -m 600 -o postgres -g postgres /certs/server.key /etc/paradedb/tls/server.key
+        exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/etc/paradedb/tls/server.crt -c ssl_key_file=/etc/paradedb/tls/server.key -c hba_file=/etc/paradedb/pg_hba.conf
+    ports:
+      - "${PARADEDB_BIND:-0.0.0.0}:${PARADEDB_PORT:-5432}:5432"
+    volumes:
+      - paradedb-data:/var/lib/postgresql # Postgres 18 images keep the data in a version subfolder of this
+      - ./certs:/certs:ro
+      - ./pg_hba.conf:/etc/paradedb/pg_hba.conf:ro
+      - ../sql/paradedb/001_nodes_bm25.sql:/docker-entrypoint-initdb.d/20_nodes_bm25.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PARADEDB_USER:-search} -d nodes_search"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  paradedb-data:

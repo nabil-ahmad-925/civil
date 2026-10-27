@@ -1,0 +1,21 @@
+# A local ParadeDB for trying the BM25 keyword search (server/docs/INGESTION_FLOW.md, "ParadeDB").
+# It listens on 127.0.0.1 only, so nothing else can reach it, and an AWS Lambda cannot either: for the deployed chat the
+# database must be reachable from the internet (a hosted ParadeDB, or a server you run), over TLS.
+#
+#   docker compose -f paradedb/docker-compose.yml up -d          (the first start creates the table, index and function)
+#   PARADEDB_URL=postgresql://postgres:test@127.0.0.1:55432/nodes_search python scripts/sync_paradedb.py
+name: civileng-paradedb-local
+services:
+  paradedb:
+    image: paradedb/paradedb:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test  # a throwaway password for a local test database
+      POSTGRES_DB: nodes_search
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - paradedb-data:/var/lib/postgresql # Postgres 18 images keep the data in a version subfolder of this
+      - ../sql/paradedb/001_nodes_bm25.sql:/docker-entrypoint-initdb.d/20_nodes_bm25.sql:ro # runs on the first start only
+volumes:
+  paradedb-data:
