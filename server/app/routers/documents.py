@@ -129,8 +129,8 @@ def delete_document(doc_id: str, repo: Repository = Depends(get_repo)):
     with _active_lock:
         if doc_id in _active:
             raise HTTPException(409, "This document is being ingested.")
-    images = [f.image_path for f in repo.list_figures(doc_id)]
-    repo.delete_document(doc_id)  # also removes its nodes, figures and cross-references
+    images = [f.image_path for f in repo.list_figures(doc_id)] + [t.image_path for t in repo.list_tables(doc_id)]
+    repo.delete_document(doc_id)  # also removes its nodes, figures, tables and cross-references
     repo.delete_file(doc.storage_path)
     repo.delete_files(images)
     # References from other manuals that pointed into this one go back to waiting.

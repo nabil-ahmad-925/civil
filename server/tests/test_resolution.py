@@ -1,6 +1,11 @@
-from app.ingestion.resolution import cross_manual_pass, find_section, internal_pass
+from app.ingestion.resolution import cross_manual_pass, internal_pass, lookup_index
+from app.ingestion.resolution import find_section as _find
 from app.models import CrossRef, Document, Node
 from app.repository.memory import MemoryRepository
+
+
+def find_section(index, ref):
+    return _find(lookup_index(index), ref)
 
 
 def doc(i, manual):
@@ -76,3 +81,11 @@ def test_dot_and_dash_numbering_are_tried_as_a_last_resort():
     assert find_section(index, ref("r", "p", "Section 2-1.6", "PPM", "2-1.6")) == "ppm"  # exact first
     assert find_section({"2-6": "dash", "2.6": "dot"}, ref("r", "p", "Section 2-6", "CADD", "2-6")) == "dash"  # exact beats a swap
 
+
+
+def test_capital_letters_do_not_matter():
+    index = {"CHAPTER 1100": "c", "Topic 103": "t"}
+    # PPM says "Section 1100"; the HDM prints the heading "CHAPTER 1100".
+    assert find_section(index, ref("r", "p", "Section 1100 of the Highway Design Manual", "HDM", "1100")) == "c"
+    assert find_section(index, ref("r", "p", "TOPIC 103", "HDM", "103")) == "t"
+    assert lookup_index({"CHAPTER 1100": "first", "Chapter 1100": "second"}) == {"chapter 1100": "first"}

@@ -74,6 +74,27 @@ class Figure(BaseModel):
     image_path: str  # in the storage bucket
 
 
+class ManualTable(BaseModel):
+    """A table captured from the PDF: its caption, its cells, and a PNG of it as printed, stored in the bucket.
+
+    The table's text also stays in the node that holds it; this record is what a reference can point at.
+    """
+
+    id: str
+    document_id: str
+    manual: Manual
+    # The section the caption sits in. None if no node covers its page.
+    node_id: str | None = None
+    # As in the references: "Table 856.5" (label) and "856.5" (number).
+    label: str
+    number: str
+    caption: str
+    page: int  # 1-based
+    bbox: list[float]  # x0, y0, x1, y1 in PDF points: the cropped region
+    image_path: str  # in the storage bucket
+    rows: list[list[str]]  # the cells, row by row; a merged or empty cell is ""
+
+
 class NodeSummary(BaseModel):
     """A node without its text or vector: enough to list and place it."""
 
@@ -111,7 +132,8 @@ class CrossRef(BaseModel):
     target_section: str | None = None
     target_label: str
     target_node_id: str | None = None
-    # Set instead of target_node_id when the reference is to a figure.
+    # Set instead of target_node_id when the reference is to a figure or to a table.
     target_figure_id: str | None = None
+    target_table_id: str | None = None
     status: RefStatus
     resolved_by: ResolvedBy | None = None

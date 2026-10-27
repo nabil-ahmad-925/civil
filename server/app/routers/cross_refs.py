@@ -4,7 +4,7 @@ from ..deps import get_repo
 from ..ingestion.pipeline import current_docs
 from ..ingestion.resolution import cross_manual_pass, internal_pass
 from ..repository.base import Repository
-from ..schemas import CrossRefRowOut, FigureOut, NodeRefOut
+from ..schemas import CrossRefRowOut, FigureOut, NodeRefOut, TableOut
 
 BATCH = 100
 
@@ -23,6 +23,7 @@ def list_cross_refs(repo: Repository = Depends(get_repo)):
         for n in repo.get_node_summaries(ids[i : i + BATCH])
     }
     figures = {f.id: FigureOut.from_figure(f) for d in repo.list_documents() for f in repo.list_figures(d.id)}
+    tables = {t.id: TableOut.from_table(t) for d in repo.list_documents() for t in repo.list_tables(d.id)}
     return [
         CrossRefRowOut(
             id=r.id,
@@ -34,6 +35,7 @@ def list_cross_refs(repo: Repository = Depends(get_repo)):
             source=nodes[r.from_node_id],
             target=nodes.get(r.target_node_id) if r.target_node_id else None,
             target_figure=figures.get(r.target_figure_id) if r.target_figure_id else None,
+            target_table=tables.get(r.target_table_id) if r.target_table_id else None,
         )
         for r in refs
         if r.from_node_id in nodes

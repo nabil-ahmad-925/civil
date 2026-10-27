@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from .config import check_config, get_settings
-from .routers import cross_refs, documents, figures, nodes
+from .routers import cross_refs, documents, figures, nodes, tables
 
 _app_logger = logging.getLogger("app")
 _app_logger.setLevel(logging.INFO)
@@ -54,3 +54,4 @@ app.include_router(documents.router)
 app.include_router(nodes.router)
 app.include_router(cross_refs.router)
 app.include_router(figures.router)
+app.include_router(tables.router)

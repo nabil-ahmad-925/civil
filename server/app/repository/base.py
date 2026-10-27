@@ -6,7 +6,7 @@ in-memory one in tests) without touching the pipeline.
 
 from typing import Protocol
 
-from ..models import CrossRef, Document, Figure, Node, NodeCondition, NodeSummary, RefStatus
+from ..models import CrossRef, Document, Figure, ManualTable, Node, NodeCondition, NodeSummary, RefStatus
 
 
 class Repository(Protocol):
@@ -36,6 +36,17 @@ class Repository(Protocol):
         ...
     def figure_index(self, doc_id: str) -> dict[str, str]:
         """figure number ("2-7") -> figure id for one document. First one wins on duplicates."""
+        ...
+
+    # --- tables -----------------------------------------------------------
+    def insert_tables(self, tables: list[ManualTable]) -> None: ...
+    def list_tables(self, doc_id: str) -> list[ManualTable]: ...
+    def get_table(self, table_id: str) -> ManualTable | None: ...
+    def delete_tables_for_document(self, doc_id: str) -> None:
+        """Removes the rows only; the images are removed with delete_files."""
+        ...
+    def table_index(self, doc_id: str) -> dict[str, str]:
+        """table number ("856.5") -> table id for one document. First one wins on duplicates."""
         ...
 
     # --- nodes and cross-references --------------------------------------

@@ -4,7 +4,7 @@ import re
 import threading
 from pathlib import Path
 
-from ..models import CrossRef, Document, Figure, Node, NodeCondition, NodeSummary, RefStatus
+from ..models import CrossRef, Document, Figure, ManualTable, Node, NodeCondition, NodeSummary, RefStatus
 
 
 class MemoryRepository:
@@ -15,6 +15,7 @@ class MemoryRepository:
         self.nodes: dict[str, Node] = {}
         self.refs: dict[str, CrossRef] = {}
         self.figures: dict[str, Figure] = {}
+        self.tables: dict[str, ManualTable] = {}
 
     # --- source documents -------------------------------------------------
     def list_documents(self) -> list[Document]:
@@ -38,6 +39,7 @@ class MemoryRepository:
             # Mirrors ON DELETE CASCADE.
             self.delete_nodes_for_document(doc_id)
             self.delete_figures_for_document(doc_id)
+            self.delete_tables_for_document(doc_id)
 
     # --- PDF files --------------------------------------------------------
     def upload_file(self, storage_path: str, local_path: str) -> None:
@@ -84,6 +86,33 @@ class MemoryRepository:
         index: dict[str, str] = {}
         for f in self.list_figures(doc_id):
             index.setdefault(f.number, f.id)
+        return index
+
+    # --- tables -----------------------------------------------------------
+    def insert_tables(self, tables: list[ManualTable]) -> None:
+        with self._lock:
+            for t in tables:
+                self.tables[t.id] = t
+
+    def list_tables(self, doc_id: str) -> list[ManualTable]:
+        return sorted((t for t in self.tables.values() if t.document_id == doc_id), key=lambda t: (t.page, t.label))
+
+    def get_table(self, table_id: str) -> ManualTable | None:
+        return self.tables.get(table_id)
+
+    def delete_tables_for_document(self, doc_id: str) -> None:
+        with self._lock:
+            gone = {k for k, t in self.tables.items() if t.document_id == doc_id}
+            self.tables = {k: t for k, t in self.tables.items() if k not in gone}
+            # Mirrors ON DELETE SET NULL on cross_refs.target_table_id.
+            for r in self.refs.values():
+                if r.target_table_id in gone:
+                    r.target_table_id = None
+
+    def table_index(self, doc_id: str) -> dict[str, str]:
+        index: dict[str, str] = {}
+        for t in self.list_tables(doc_id):
+            index.setdefault(t.number, t.id)
         return index
 
     # --- nodes and cross-references --------------------------------------

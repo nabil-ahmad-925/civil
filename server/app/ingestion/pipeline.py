@@ -1,7 +1,7 @@
-"""Ingests one uploaded PDF: read -> chunk -> capture cross-refs and figures -> embed -> save -> link refs.
+"""Ingests one uploaded PDF: read -> chunk -> capture cross-refs, figures and tables -> embed -> save -> link refs.
 
-Figures are captured from the same PDF (figures.py), rendered to PNG in the bucket, and saved
-in the figures table so references to them can be linked.
+Figures and tables are captured from the same PDF (figures.py, tables.py), rendered to PNG in the bucket, and
+saved in the figures and manual_tables tables so references to them can be linked.
 
 Runs synchronously inside POST /api/documents/{id}/ingest. For a very large manual with
 embeddings on, move this to a background job.
@@ -19,6 +19,7 @@ from .embeddings import Embedder
 from .figures import capture_figures
 from .planner import NodePlanner
 from .resolution import cross_manual_pass, internal_pass
+from .tables import capture_tables
 
 log = logging.getLogger(__name__)
 
@@ -61,11 +62,20 @@ def _chunk_and_save(
         figures_error = f"{type(exc).__name__}: {exc}"
     else:
         figures_error = None
+    try:
+        tables = capture_tables(pdf, doc.manual, doc.id, result.nodes, get_settings().table_dpi)
+    except Exception as exc:  # noqa: BLE001 - tables are an extra too; their text is already in the sections
+        log.exception("Capturing tables of %s failed", doc.id)
+        tables = []
+        tables_error = f"{type(exc).__name__}: {exc}"
+    else:
+        tables_error = None
     stats: dict[str, Any] = {
         "pages": result.pages,
         "nodes": len(result.nodes),
         "cross_refs": len(refs),
         "figures": len(figures),
+        "tables": len(tables),
         "unassigned_lines": result.unassigned_lines,
     }
 
@@ -79,15 +89,21 @@ def _chunk_and_save(
 
     if figures_error:
         stats["figures_error"] = figures_error
+    if tables_error:
+        stats["tables_error"] = tables_error
 
     # A re-ingest replaces, never duplicates.
-    repo.delete_files([f.image_path for f in repo.list_figures(doc.id)])
+    repo.delete_files([f.image_path for f in repo.list_figures(doc.id)] + [t.image_path for t in repo.list_tables(doc.id)])
     repo.delete_figures_for_document(doc.id)
+    repo.delete_tables_for_document(doc.id)
     repo.delete_nodes_for_document(doc.id)
     repo.insert_nodes(result.nodes)
     for captured in figures:
         repo.upload_bytes(captured.figure.image_path, captured.png, "image/png")
     repo.insert_figures([c.figure for c in figures])
+    for captured_table in tables:
+        repo.upload_bytes(captured_table.table.image_path, captured_table.png, "image/png")
+    repo.insert_tables([c.table for c in tables])
     repo.insert_cross_refs(refs)
     stats["internal_pass"] = internal_pass(repo, doc)
     return stats

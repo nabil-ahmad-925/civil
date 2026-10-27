@@ -99,4 +99,4 @@ tests/
   slow, make it a background job.
 - `EMBEDDING_PROVIDER=openai` is a placeholder choice, written but not run against the real API.
 - The Supabase repository has not been run against a live project (query shapes were checked against a fake HTTP server).
-- Not built yet: tagging, search, linking of tables and figures.
+- Not built yet: tagging, search. Figures and tables are captured and linked from references.

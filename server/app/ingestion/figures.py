@@ -12,6 +12,7 @@ the words after the number do not start in lower case. That keeps body sentences
 import logging
 import re
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 import pymupdf
@@ -95,7 +96,9 @@ def _drawing_for(caption: pymupdf.Rect, drawings: list[pymupdf.Rect]) -> pymupdf
     return best[1] if best else None
 
 
-def _captions(page: pymupdf.Page, found: dict[str, "CapturedFigure"]) -> list[tuple[pymupdf.Rect, str, str]]:
+def _captions(
+    page: pymupdf.Page, found: dict[str, Any], caption_re: re.Pattern[str] = CAPTION_RE
+) -> list[tuple[pymupdf.Rect, str, str]]:
     """(bbox, number, text) of each caption line on the page.
 
     Works on lines, not blocks: a block can span the whole figure (its own labels are text too), which
@@ -112,13 +115,13 @@ def _captions(page: pymupdf.Page, found: dict[str, "CapturedFigure"]) -> list[tu
         ]
         lines = [(r, t) for r, t in lines if t]
         for i, (rect, text) in enumerate(lines):
-            m = CAPTION_RE.match(text)
+            m = caption_re.match(text)
             if not m or SENTENCE_RE.match(m["title"].strip()) or m["num"].upper() in found:
                 continue
             bbox = pymupdf.Rect(rect)
             if not m["title"].strip() and i + 1 < len(lines):
                 nxt, nxt_text = lines[i + 1]
-                if nxt.y0 - rect.y1 < rect.height * 0.5 and not CAPTION_RE.match(nxt_text):
+                if nxt.y0 - rect.y1 < rect.height * 0.5 and not caption_re.match(nxt_text):
                     text, bbox = f"{text} {nxt_text}", bbox | nxt
             out.append((bbox, m["num"], " ".join(text.split())[:CAPTION_MAX_CHARS]))
     return out

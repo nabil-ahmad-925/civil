@@ -11,11 +11,18 @@ from ..models import CrossRef, Document, Manual
 from ..repository.base import Repository
 
 FIGURE_LABEL_RE = re.compile(r"\bFigure\s+(\S+)$")
+TABLE_LABEL_RE = re.compile(r"\bTable\s+(\S+)$")
 
 
 def figure_number(ref: CrossRef) -> str | None:
     """"2-7" for a reference labelled "PPM Figure 2-7"; None for anything else."""
     m = FIGURE_LABEL_RE.search(ref.target_label) if not ref.target_section else None
+    return m[1].upper() if m else None
+
+
+def table_number(ref: CrossRef) -> str | None:
+    """"856.5" for a reference labelled "HDM Table 856.5"; None for anything else."""
+    m = TABLE_LABEL_RE.search(ref.target_label) if not ref.target_section else None
     return m[1].upper() if m else None
 
 
@@ -26,8 +33,17 @@ _SWAP_SEPARATORS = str.maketrans(".-", "-.")
 _WORD_RE = re.compile(r"\b(" + "|".join(SECTION_WORDS) + r")\b", re.IGNORECASE)
 
 
+def lookup_index(index: dict[str, str]) -> dict[str, str]:
+    """The section index with lower-case keys: a heading may print "CHAPTER 1100" where a mention says "Chapter 1100".
+    The first node wins when two differ only in case."""
+    out: dict[str, str] = {}
+    for section, node_id in index.items():
+        out.setdefault(" ".join(section.lower().split()), node_id)
+    return out
+
+
 def find_section(index: dict[str, str], ref: CrossRef) -> str | None:
-    """Node id of the section a reference points at, or None.
+    """Node id of the section a reference points at, or None. `index` comes from lookup_index().
 
     Tries the number as saved, then with a kind word in front ("Topic 103"; the word the mention uses goes first), and,
     for a paragraph reference such as "210.2(3)(c)", the section that holds it ("210.2"). Last, the number with "." and
@@ -46,8 +62,9 @@ def find_section(index: dict[str, str], ref: CrossRef) -> str | None:
     words = [*mentioned, *(w for w in SECTION_WORDS if w not in mentioned)]
     for c in candidates:
         for key in (c, *(f"{w} {c}" for w in words)):
-            if key in index:
-                return index[key]
+            found = index.get(key.lower())
+            if found:
+                return found
     return None
 
 
@@ -55,12 +72,25 @@ def _figures(repo: Repository, doc_id: str) -> dict[str, str]:
     return {number.upper(): fid for number, fid in repo.figure_index(doc_id).items()}
 
 
+def _tables(repo: Repository, doc_id: str) -> dict[str, str]:
+    return {number.upper(): tid for number, tid in repo.table_index(doc_id).items()}
+
+
 def internal_pass(repo: Repository, doc: Document) -> dict[str, int]:
-    index = repo.section_index(doc.id)
+    index = lookup_index(repo.section_index(doc.id))
     figures = _figures(repo, doc.id)
+    tables = _tables(repo, doc.id)
     pending = repo.list_refs(doc.id, "unresolved")
     changed = []
     for ref in pending:
+        tnumber = table_number(ref)
+        if tnumber and ref.target_manual == doc.manual:
+            if tnumber in tables:
+                ref.status = "resolved"
+                ref.target_table_id = tables[tnumber]
+                ref.resolved_by = "internal_pass"
+                changed.append(ref)
+            continue
         number = figure_number(ref)
         if number and ref.target_manual == doc.manual:
             if number in figures:
@@ -76,7 +106,7 @@ def internal_pass(repo: Repository, doc: Document) -> dict[str, int]:
             ref.resolved_by = "internal_pass"
             changed.append(ref)
     repo.save_refs(changed)
-    # Left as unresolved: tables, figures that were not captured, and sections the chunker did not find.
+    # Left as unresolved: tables and figures that were not captured, and sections the chunker did not find.
     return {"resolved": len(changed), "still_unresolved": len(pending) - len(changed)}
 
 
@@ -86,12 +116,13 @@ def cross_manual_pass(repo: Repository, docs: list[Document]) -> dict[str, int]:
     Recomputes every cross-manual reference of those documents from scratch, so it also fixes
     references left dangling when a target document was replaced or deleted:
       target manual not ingested yet        -> awaiting_cross
-      target manual ingested, section or figure found -> resolved
-      target manual ingested, no such section or figure -> unresolved (final until that manual changes)
+      target manual ingested, section, figure or table found -> resolved
+      target manual ingested, no such section, figure or table -> unresolved (final until that manual changes)
     """
     by_manual: dict[Manual, Document] = {d.manual: d for d in docs}
-    indexes = {m: repo.section_index(d.id) for m, d in by_manual.items()}
+    indexes = {m: lookup_index(repo.section_index(d.id)) for m, d in by_manual.items()}
     figure_indexes = {m: _figures(repo, d.id) for m, d in by_manual.items()}
+    table_indexes = {m: _tables(repo, d.id) for m, d in by_manual.items()}
     counts = {"resolved": 0, "unresolved": 0, "waiting_for_other_manual": 0}
 
     for doc in docs:
@@ -99,25 +130,28 @@ def cross_manual_pass(repo: Repository, docs: list[Document]) -> dict[str, int]:
         for ref in repo.list_refs(doc.id):
             if ref.target_manual == doc.manual or ref.target_manual == "OTHER":
                 continue  # same-manual refs belong to the internal pass; other documents are never linked
-            before = (ref.status, ref.target_node_id, ref.target_figure_id)
-            node_id = figure_id = None
+            before = (ref.status, ref.target_node_id, ref.target_figure_id, ref.target_table_id)
+            node_id = figure_id = table_id = None
             number = figure_number(ref)
+            tnumber = table_number(ref)
             if ref.target_manual not in by_manual:
                 ref.status, ref.resolved_by = "awaiting_cross", None
                 counts["waiting_for_other_manual"] += 1
             else:
                 if number:
                     figure_id = figure_indexes[ref.target_manual].get(number)
+                elif tnumber:
+                    table_id = table_indexes[ref.target_manual].get(tnumber)
                 elif ref.target_section:
                     node_id = find_section(indexes[ref.target_manual], ref)
-                if node_id or figure_id:
+                if node_id or figure_id or table_id:
                     ref.status, ref.resolved_by = "resolved", "cross_manual_pass"
                     counts["resolved"] += 1
                 else:
                     ref.status, ref.resolved_by = "unresolved", None
                     counts["unresolved"] += 1
-            ref.target_node_id, ref.target_figure_id = node_id, figure_id
-            if (ref.status, ref.target_node_id, ref.target_figure_id) != before:
+            ref.target_node_id, ref.target_figure_id, ref.target_table_id = node_id, figure_id, table_id
+            if (ref.status, ref.target_node_id, ref.target_figure_id, ref.target_table_id) != before:
                 changed.append(ref)
         repo.save_refs(changed)
     return counts

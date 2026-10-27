@@ -44,9 +44,9 @@ heading lines that are not set in the same style as the first one.
 
 | Status | Meaning |
 | --- | --- |
-| `unresolved` | Points into the same manual and the internal pass did not find the section. Tables stay here (not captured yet), and so do figures that were not captured. Also: points at another manual that **is** ingested but has no such section. |
+| `unresolved` | Points into the same manual and the internal pass did not find the section. So do tables and figures that were not captured. Also: points at another manual that **is** ingested but has no such section. |
 | `awaiting_cross` | Points at another manual that is **not ingested yet** (e.g. PPM citing "Section 2.6 of the CADD Users Manual"). |
-| `resolved` | Linked to a real node, or to a captured figure (`target_figure_id`). `resolved_by` records which pass did it. |
+| `resolved` | Linked to a real node, or to a captured figure (`target_figure_id`) or table (`target_table_id`). `resolved_by` records which pass did it. |
 
 The cross-manual pass runs on every ingest and every delete, over the current ingested document of each manual, and
 recomputes each cross-manual reference from scratch. Upload order does not matter, and replacing or deleting a manual
@@ -63,6 +63,24 @@ label, caption, page, owning section and image path. The first usable caption of
 The internal and cross-manual passes link a `... Figure N-N` reference to the figure with that number. Endpoints:
 `GET /api/figures?document_id=` and `GET /api/figures/{id}/image`. A failure while capturing figures does not fail the
 ingest; it is logged and shown as `figures_error` in the document summary. Run `sql/002_figures.sql` on an existing database.
+
+## Tables
+
+`ingestion/tables.py` runs on the same PDF during ingest. A line starting with `Table N` is a caption when a **ruled** grid
+(PyMuPDF's table finder, so it needs ruling lines) sits within 60 points of it, overlapping it horizontally, with at
+least two non-empty rows, and the words after the number do not start in lower case ("Table 2.4 lists..." is a
+sentence). The cells are saved as `rows` in `manual_tables`, and the grid plus the caption is rendered to a PNG
+(`TABLE_DPI`, default 150) in the bucket at `tables/<document id>/<label>.png`. The table's text also stays in its
+node: this record is only what a reference can point at.
+
+The internal and cross-manual passes link a `... Table N` reference to the table with that number. Endpoints:
+`GET /api/tables?document_id=` (no cells), `GET /api/tables/{id}` (with cells) and `GET /api/tables/{id}/image`. A
+failure while capturing tables does not fail the ingest; it is logged and shown as `tables_error` in the summary.
+Run `sql/005_tables.sql` on an existing database **before** the next ingest, then ingest each document again.
+
+Limits: a table with no ruling lines (many Caltrans tables have horizontal rules only) is not captured, and a reference
+to it stays `unresolved`. Only the part of a table on its caption's page is kept. A reference to a family of tables
+("Table 202.2" for 202.2A to 202.2E) does not match any of them.
 
 ## Retrieval
 
@@ -93,5 +111,6 @@ after fixing the cause. Re-running replaces the document's chunks, never duplica
 
 - Tagging (classification, applicability conditions, exceptions). The `node_conditions` table and the tagging columns on `nodes` exist; nothing fills them.
 - Search and the explicit "not covered" answer.
-- Capturing and linking tables (figures are done), and reading a figure's content with a vision model.
+- Tables without ruling lines, tables that run over several pages, and reading a figure's or table's content with a vision model.
+- Tables and figures in search and chat answers (they are only linked from references so far).
 - Requirement class from formatting (boldface / underlined).

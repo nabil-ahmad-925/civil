@@ -14,6 +14,7 @@ from ..schemas import (
     RefIncomingOut,
     RefOutgoingOut,
     SourceOut,
+    TableOut,
 )
 
 router = APIRouter(prefix="/api/nodes", tags=["nodes"])
@@ -84,6 +85,10 @@ def get_node(node_id: str, repo: Repository = Depends(get_repo)):
         f = repo.get_figure(figure_id) if figure_id else None
         return FigureOut.from_figure(f) if f else None
 
+    def table_out(table_id: str | None) -> TableOut | None:
+        t = repo.get_table(table_id) if table_id else None
+        return TableOut.from_table(t) if t else None
+
     return NodeDetailOut(
         **node.model_dump(exclude={"embedding", "parent_id"}),
         source=SourceOut(**doc.model_dump(include={"id", "manual", "original_name", "version", "sha256", "uploaded_at"})),
@@ -99,6 +104,7 @@ def get_node(node_id: str, repo: Repository = Depends(get_repo)):
                 resolved_by=r.resolved_by,
                 node=ref(r.target_node_id),
                 figure=figure_out(r.target_figure_id),
+                table=table_out(r.target_table_id),
             )
             for r in outgoing
         ],

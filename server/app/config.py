@@ -27,6 +27,8 @@ class Settings(BaseSettings):
 
     # Resolution of the PNG saved for each figure.
     figure_dpi: int = 150
+    # Resolution of the PNG saved for each table.
+    table_dpi: int = 150
 
     # Chat: answers a question from the retrieved sections (infra/lambdas/chat/chat_service.py).
     chat_model: str = "gpt-4.1-mini"

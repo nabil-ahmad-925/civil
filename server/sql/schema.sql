@@ -11,7 +11,7 @@
 --   alter table cross_refs drop constraint if exists cross_refs_status_check;
 --   alter table cross_refs add constraint cross_refs_status_check check (status in ('unresolved', 'resolved', 'awaiting_cross', 'external'));
 --
--- Already have the tables? Add figures with sql/002_figures.sql.
+-- Already have the tables? Add figures with sql/002_figures.sql and tables with sql/005_tables.sql.
 --
 -- If you already ran an earlier version of this file (it had ingestion_jobs and batch_id), reset first:
 --   drop table if exists cross_refs, node_conditions, nodes, ingestion_jobs, source_documents cascade;
@@ -98,6 +98,26 @@ create index if not exists figures_document_idx on figures (document_id, page);
 create index if not exists figures_number_idx on figures (document_id, number);
 create index if not exists figures_node_idx on figures (node_id);
 
+-- Tables captured from the manuals: the caption, the cells and where it is. The PNG itself is in the bucket
+-- (image_path = tables/<document id>/<label>.png). The table's text also stays in its node.
+create table if not exists manual_tables (
+  id          uuid primary key,
+  document_id uuid not null references source_documents (id) on delete cascade,
+  manual      text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  node_id     uuid references nodes (id) on delete set null,
+  label       text not null,
+  number      text not null,
+  caption     text not null,
+  page        int not null,
+  bbox        jsonb not null,
+  image_path  text not null,
+  rows        jsonb not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists manual_tables_document_idx on manual_tables (document_id, page);
+create index if not exists manual_tables_number_idx on manual_tables (document_id, number);
+create index if not exists manual_tables_node_idx on manual_tables (node_id);
+
 -- Every "see Section X" style mention, saved verbatim while chunking.
 --   unresolved      same-manual target not linked (yet, or never found)
 --   awaiting_cross  points at another manual; waits for the cross-manual pass
@@ -113,6 +133,7 @@ create table if not exists cross_refs (
   target_label   text not null,
   target_node_id uuid references nodes (id) on delete set null,
   target_figure_id uuid references figures (id) on delete set null,   -- set instead of target_node_id for a figure
+  target_table_id  uuid references manual_tables (id) on delete set null,   -- ... or for a table
   status         text not null check (status in ('unresolved', 'resolved', 'awaiting_cross', 'external')),
   resolved_by    text check (resolved_by in ('internal_pass', 'cross_manual_pass'))
 );
@@ -124,3 +145,4 @@ alter table nodes            enable row level security;
 alter table node_conditions  enable row level security;
 alter table cross_refs       enable row level security;
 alter table figures          enable row level security;
+alter table manual_tables    enable row level security;

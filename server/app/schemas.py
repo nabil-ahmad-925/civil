@@ -12,6 +12,7 @@ from .models import (
     Document,
     Figure,
     DocStatus,
+    ManualTable,
     Manual,
     Node,
     NodeCondition,
@@ -93,6 +94,32 @@ class FigureOut(CamelModel):
         return cls(**f.model_dump(include=set(cls.model_fields)))
 
 
+class TableOut(CamelModel):
+    """A captured table, without its cells. Its picture is at GET /api/tables/{id}/image."""
+
+    id: str
+    document_id: str
+    manual: Manual
+    node_id: str | None
+    label: str
+    caption: str
+    page: int
+
+    @classmethod
+    def from_table(cls, t: ManualTable) -> "TableOut":
+        return cls(**t.model_dump(include=set(cls.model_fields)))
+
+
+class TableDetailOut(TableOut):
+    """One table with its cells, row by row."""
+
+    rows: list[list[str]]
+
+    @classmethod
+    def from_table(cls, t: ManualTable) -> "TableDetailOut":
+        return cls(**t.model_dump(include=set(cls.model_fields)))
+
+
 class RefOutgoingOut(CamelModel):
     """A mention in this node's text, and where it leads (node is null until it is linked)."""
 
@@ -104,6 +131,7 @@ class RefOutgoingOut(CamelModel):
     resolved_by: ResolvedBy | None
     node: NodeRefOut | None
     figure: FigureOut | None = None
+    table: TableOut | None = None
 
 
 class RefIncomingOut(CamelModel):
@@ -169,3 +197,4 @@ class CrossRefRowOut(CamelModel):
     source: NodeRefOut
     target: NodeRefOut | None
     target_figure: FigureOut | None = None
+    target_table: TableOut | None = None

@@ -6,7 +6,7 @@ from typing import Any, Callable
 from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
-from ..models import CrossRef, Document, Figure, Node, NodeCondition, NodeSummary, RefStatus
+from ..models import CrossRef, Document, Figure, ManualTable, Node, NodeCondition, NodeSummary, RefStatus
 
 log = logging.getLogger(__name__)
 
@@ -107,6 +107,33 @@ class SupabaseRepository:
     def figure_index(self, doc_id: str) -> dict[str, str]:
         rows = self._paged(
             lambda: self._table("figures").select("id,number,page").eq("document_id", doc_id).order("page").order("id")
+        )
+        index: dict[str, str] = {}
+        for r in rows:
+            index.setdefault(r["number"], r["id"])
+        return index
+
+    # --- tables -----------------------------------------------------------
+    def insert_tables(self, tables: list[ManualTable]) -> None:
+        for batch in _chunks(tables, REF_BATCH):
+            self._table("manual_tables").insert([t.model_dump(mode="json") for t in batch]).execute()
+
+    def list_tables(self, doc_id: str) -> list[ManualTable]:
+        rows = self._paged(
+            lambda: self._table("manual_tables").select("*").eq("document_id", doc_id).order("page").order("label")
+        )
+        return [ManualTable(**r) for r in rows]
+
+    def get_table(self, table_id: str) -> ManualTable | None:
+        rows = self._table("manual_tables").select("*").eq("id", table_id).limit(1).execute().data
+        return ManualTable(**rows[0]) if rows else None
+
+    def delete_tables_for_document(self, doc_id: str) -> None:
+        self._table("manual_tables").delete().eq("document_id", doc_id).execute()
+
+    def table_index(self, doc_id: str) -> dict[str, str]:
+        rows = self._paged(
+            lambda: self._table("manual_tables").select("id,number,page").eq("document_id", doc_id).order("page").order("id")
         )
         index: dict[str, str] = {}
         for r in rows:
