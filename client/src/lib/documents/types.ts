@@ -4,7 +4,18 @@ export const MANUALS = [
   { id: "CADD", label: "CADD Users Manual" },
 ] as const;
 
-export type Manual = (typeof MANUALS)[number]["id"];
+/** PPM, HDM and CADD have numbered headings. Any other manual is a name the user typed at upload. */
+export type CoreManual = (typeof MANUALS)[number]["id"];
+export type Manual = string;
+
+export const MAX_MANUAL_CHARS = 80;
+
+/** PPM, HDM, CADD, then the other manual names that exist, A to Z. */
+export function manualTabs(names: Iterable<string>): string[] {
+  const core: string[] = MANUALS.map((m) => m.id);
+  const others = [...new Set(names)].filter((n) => !core.includes(n)).sort((a, b) => a.localeCompare(b));
+  return [...core, ...others];
+}
 
 /** uploaded: in the bucket, not chunked yet. failed: ingest raised, see `error`. */
 export type DocStatus = "uploaded" | "processing" | "ingested" | "failed";

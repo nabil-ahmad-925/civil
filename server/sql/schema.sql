@@ -30,7 +30,7 @@ on conflict (id) do nothing;
 --   failed      ingest raised; `error` says why. Run ingest again after fixing the cause.
 create table if not exists source_documents (
   id            uuid primary key,
-  manual        text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  manual        text not null,
   version       text not null,
   original_name text not null,
   size_bytes    bigint not null,
@@ -47,7 +47,7 @@ create table if not exists source_documents (
 create table if not exists nodes (
   id               uuid primary key,
   document_id      uuid not null references source_documents (id) on delete cascade,
-  manual           text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  manual           text not null,
   chapter          text not null default '',
   section          text not null,
   title            text not null,
@@ -84,7 +84,7 @@ create index if not exists node_conditions_node_idx on node_conditions (node_id)
 create table if not exists figures (
   id          uuid primary key,
   document_id uuid not null references source_documents (id) on delete cascade,
-  manual      text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  manual      text not null,
   node_id     uuid references nodes (id) on delete set null,
   label       text not null,
   number      text not null,
@@ -103,7 +103,7 @@ create index if not exists figures_node_idx on figures (node_id);
 create table if not exists manual_tables (
   id          uuid primary key,
   document_id uuid not null references source_documents (id) on delete cascade,
-  manual      text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  manual      text not null,
   node_id     uuid references nodes (id) on delete set null,
   label       text not null,
   number      text not null,

@@ -3,8 +3,9 @@
 import logging
 from typing import Any, Callable
 
+import httpx
 from postgrest.exceptions import APIError
-from supabase import Client, create_client
+from supabase import Client, ClientOptions, create_client
 
 from ..models import CrossRef, Document, Figure, ManualTable, Node, NodeCondition, NodeSummary, RefStatus
 from .keywords import keyword_terms
@@ -39,7 +40,15 @@ class SupabaseRepository:
     ) -> None:
         if not url or not service_role_key:
             raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set (see .env.example).")
-        self.client: Client = create_client(url, service_role_key)
+        # HTTP/1.1 with short keep-alive: pooled HTTP/2 connections get dropped by the server while idle, and the
+        # next request then fails with "Server disconnected".
+        http = httpx.Client(
+            http2=False,
+            timeout=120,
+            limits=httpx.Limits(max_keepalive_connections=10, keepalive_expiry=5),
+            transport=httpx.HTTPTransport(retries=2),
+        )
+        self.client: Client = create_client(url, service_role_key, options=ClientOptions(httpx_client=http))
         self.bucket = bucket
         self.keyword_backend = keyword_backend
         if keyword_backend == "paradedb":

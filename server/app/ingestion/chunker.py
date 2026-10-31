@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from ..models import Manual, Node
 from .pdf_reader import Line, dominant_size, read_lines, strip_running_lines
-from .planner import NodePlanner, PageInput, Start, validate_starts
+from .planner import NodePlanner, PageInput, Start, validate_starts, validate_topic_starts
 
 HEADING_RE = re.compile(
     r"^(?:(?P<kw>Chapter|Topic|Index|Section|Article)\s+)?"
@@ -99,12 +99,22 @@ class RegexPlanner:
         return starts
 
 
+def _first_words(text: str, limit: int = 60) -> str:
+    """A title for a topic the planner left untitled: the start of its text."""
+    words = " ".join(text.split())
+    return words if len(words) <= limit else words[:limit].rsplit(" ", 1)[0] + "…"
+
+
 class _NodeBuilder:
     """Turns a stream of pages plus planned starts into nodes."""
 
-    def __init__(self, manual: Manual, document_id: str) -> None:
+    def __init__(self, manual: Manual, document_id: str, topics: bool = False) -> None:
         self.manual = manual
         self.document_id = document_id
+        # A document without headings: topics are cut at lines of ordinary text, titled by the planner, numbered
+        # 1, 2, 3 in reading order, and every line belongs to a topic (nothing is left "before the first heading").
+        self.topics = topics
+        self._topic_count = 0
         self.nodes: list[Node] = []
         # Every line ends up in exactly one of these three, which chunk_pdf checks at the end.
         self.heading_lines = 0
@@ -116,6 +126,9 @@ class _NodeBuilder:
         self._body: list[Line] = []
 
     def context(self) -> str:
+        if self.topics:
+            title = self._open["title"] if self._open else ""
+            return f"Current topic: {title or '(untitled)'}" if self._open else "none yet (start of the document)"
         path = " > ".join(label for _, _, label in self._stack) or "none yet (start of the document)"
         return f"Current position: {path}"
 
@@ -126,12 +139,20 @@ class _NodeBuilder:
         i = 0
         while i < len(lines):
             start = by_line.get(i)
-            if start:
+            if start and self.topics:
+                self._flush()
+                self._open_node(start, [], page)
+                self._body.append(lines[i])  # the first line of a topic is its text, not a heading
+                self.body_lines += 1
+                i += 1
+            elif start:
                 self._flush()
                 self._open_node(start, everything[i : i + start.heading_lines], page)
                 self.heading_lines += start.heading_lines
                 i += start.heading_lines
             else:
+                if self._open is None and self.topics:  # text before the first planned topic: it still gets a topic
+                    self._open_node(Start(line=i, heading_lines=0, section="", level=1), [], page)
                 if self._open is not None:
                     self._body.append(lines[i])
                     self.body_lines += 1
@@ -147,7 +168,7 @@ class _NodeBuilder:
     def _open_node(self, start: Start, heading: list[Line], page: int) -> None:
         # The heading exactly as printed ("SECTION 1-1 GENERAL"). A title that wraps over several lines
         # is joined with single spaces; nothing is removed.
-        title = " ".join(ln.text for ln in heading)
+        title = start.title if self.topics else " ".join(ln.text for ln in heading)
         node_id = str(uuid4())
         while self._stack and self._stack[-1][0] >= start.level:
             self._stack.pop()
@@ -156,13 +177,17 @@ class _NodeBuilder:
         self._stack.append((start.level, node_id, label))
         if start.level == 1:
             self._chapter = label
+        section = start.section
+        if self.topics:
+            self._topic_count += 1
+            section = str(self._topic_count)
         self._open = {
             "id": node_id,
             "parent_id": parent_id,
-            "section": start.section,
+            "section": section,
             "title": title,
             "page": page,
-            "end_page": heading[-1].page,  # a heading can run onto the next page
+            "end_page": heading[-1].page if heading else page,  # a heading can run onto the next page
             "chapter": self._chapter,
         }
         self._body = []
@@ -171,19 +196,21 @@ class _NodeBuilder:
         cur = self._open
         if cur is None:
             return
+        text = "\n".join(ln.text for ln in self._body)
+        title = cur["title"] or (_first_words(text) if self.topics else "")
         self.nodes.append(
             Node(
                 id=cur["id"],
                 document_id=self.document_id,
                 manual=self.manual,
-                chapter=cur["chapter"],
+                chapter=cur["chapter"] or title,
                 section=cur["section"],
-                title=cur["title"],
+                title=title,
                 parent_id=cur["parent_id"],
                 page_start=cur["page"],
                 page_end=self._body[-1].page if self._body else cur["end_page"],
                 ordinal=len(self.nodes),
-                text="\n".join(ln.text for ln in self._body),
+                text=text,
             )
         )
         self._open = None
@@ -214,7 +241,8 @@ def chunk_pdf(
     page_numbers = list(by_page)
     window = max(0, context_lines)
 
-    builder = _NodeBuilder(manual, document_id)
+    topics = bool(getattr(planner, "topics", False))
+    builder = _NodeBuilder(manual, document_id, topics)
     taken = 0  # lines at the top of this page already used by a heading that began on the previous page
     for n, page_no in enumerate(page_numbers):
         page_lines = by_page[page_no][taken:]
@@ -227,7 +255,8 @@ def chunk_pdf(
         page_input = PageInput(
             page=page_no, lines=page_lines, body_size=body_size, context=builder.context(), before=before, after=after,
         )
-        starts = validate_starts(planner.plan_page(page_input), page_lines, after)
+        planned = planner.plan_page(page_input)
+        starts = validate_topic_starts(planned, page_lines) if topics else validate_starts(planned, page_lines, after)
         log.info(
             "chunk_pdf page %d (%d of %d with text): %d heading(s) %s",
             page_no, n + 1, len(page_numbers), len(starts), [(s.line, s.section, s.level) for s in starts],

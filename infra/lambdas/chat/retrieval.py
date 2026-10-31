@@ -11,7 +11,6 @@
    The merged top sections are the HITS; each says which searches found it (`matched_by`).
 2. Each hit is expanded through the cross-reference graph, so an answer does not stop at "see Section 2-1.1":
      mentions       sections and figures the hit's own text points to (resolved references only)
-     mentioned_by   sections whose text points to the hit
      in_section     figures captioned inside the hit
 Only references that were resolved to a real node or figure are followed. A linked section that is also a
 hit is marked `also_hit` so the caller does not show it twice.
@@ -40,8 +39,9 @@ KEYWORD_RELEVANT = 0.3
 # Of the keyword matches only those near the best one count: the OR-search also returns sections sharing a single
 # common word, and those must not push out the sections that hold the rare words.
 KEYWORD_KEEP = 0.5  # of the best keyword rank
-# Per hit and direction. A popular section can be mentioned hundreds of times.
-MAX_LINKED = 5
+# Only the sections a hit's own text points to are brought along (not the ones that point to it). All of them are
+# returned with it; the cap only guards against a runaway list.
+MAX_MENTIONS = 100
 
 
 @dataclass
@@ -160,11 +160,9 @@ def search(
         return hits
 
     out_refs = {h.node.id: [r for r in repo.refs_from(h.node.id) if r.status == "resolved"] for h in hits}
-    in_refs = {h.node.id: [r for r in repo.refs_to(h.node.id) if r.status == "resolved"] for h in hits}
     own_figures = repo.figures_of_nodes(list(score))
 
-    wanted_nodes = {r.target_node_id for rs in out_refs.values() for r in rs[:MAX_LINKED * 2] if r.target_node_id}
-    wanted_nodes |= {r.from_node_id for rs in in_refs.values() for r in rs[:MAX_LINKED]}
+    wanted_nodes = {r.target_node_id for rs in out_refs.values() for r in rs[:MAX_MENTIONS] if r.target_node_id}
     wanted_figures = {r.target_figure_id for rs in out_refs.values() for r in rs if r.target_figure_id}
     linked_nodes = {n.id: n for n in repo.get_nodes(sorted(wanted_nodes - set(nodes)))} | nodes
     linked_figures = {f.id: f for f in repo.get_figures(sorted(wanted_figures))}
@@ -175,14 +173,10 @@ def search(
         seen: set[str] = set()
         for r in out_refs[h.node.id]:
             if r.target_node_id and r.target_node_id in linked_nodes and r.target_node_id not in seen and r.target_node_id != h.node.id:
-                if sum(1 for ln in h.linked if ln.relation == "mentions") < MAX_LINKED:
+                if sum(1 for ln in h.linked if ln.relation == "mentions") < MAX_MENTIONS:
                     seen.add(r.target_node_id)
                     h.linked.append(LinkedNode("mentions", r.mention, linked_nodes[r.target_node_id], r.target_node_id in score))
             elif r.target_figure_id and r.target_figure_id in linked_figures:
                 if all(lf.figure.id != r.target_figure_id for lf in h.figures):
                     h.figures.append(LinkedFigure("mentioned", linked_figures[r.target_figure_id], r.mention))
-        for r in in_refs[h.node.id][:MAX_LINKED]:
-            if r.from_node_id in linked_nodes and r.from_node_id not in seen and r.from_node_id != h.node.id:
-                seen.add(r.from_node_id)
-                h.linked.append(LinkedNode("mentioned_by", r.mention, linked_nodes[r.from_node_id], r.from_node_id in score))
     return hits

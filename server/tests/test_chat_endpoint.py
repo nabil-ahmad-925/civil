@@ -77,7 +77,7 @@ def test_history_is_trimmed_like_the_lambda_does(chat):
 
 @pytest.mark.parametrize(
     "body",
-    [{}, {"message": ""}, {"message": "   "}, {"message": "x" * 2001}, {"message": "hi", "manual": "XYZ"}, {"message": "hi", "history": [{"role": "system", "content": "x"}]}, {"message": "hi", "history": "no"}],
+    [{}, {"message": ""}, {"message": "   "}, {"message": "x" * 2001}, {"message": "hi", "manual": ""}, {"message": "hi", "history": [{"role": "system", "content": "x"}]}, {"message": "hi", "history": "no"}],
 )
 def test_a_malformed_request_is_refused(chat, body):
     post, _ = chat

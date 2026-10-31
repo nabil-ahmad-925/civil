@@ -29,6 +29,7 @@ MAX_LEVEL = 8
 MAX_HEADING_LINES = 4  # a heading wraps over at most this many lines
 SIZE_TOLERANCE = 0.6  # points; lines of one heading are set in the same size
 MAX_LINE_CHARS = 300  # longer lines are shortened in the prompt only, never in the stored text
+MAX_TOPIC_TITLE_CHARS = 120
 
 
 class PlannerError(RuntimeError):
@@ -51,6 +52,9 @@ class Start:
     heading_lines: int  # how many consecutive lines the heading occupies (may run into `after`)
     section: str  # the number exactly as printed in the heading, e.g. "1-1.2" or "301.1"
     level: int  # 1 = chapter, 2 = section, 3 = subsection ...
+    # A topic start (documents without headings): the model's own short title. heading_lines is 0 then, because
+    # the first line of a topic is ordinary text and stays in it.
+    title: str = ""
 
 
 class NodePlanner(Protocol):
@@ -67,6 +71,21 @@ def _section_pattern(section: str) -> re.Pattern[str]:
 
 def _same_style(a: Line, b: Line) -> bool:
     return a.bold == b.bold and abs(a.size - b.size) <= SIZE_TOLERANCE
+
+
+def validate_topic_starts(starts: list[Start], lines: list[Line]) -> list[Start]:
+    """Keeps the topic starts that name a line of the page, once each, in page order. Anything else is dropped and logged."""
+    good: list[Start] = []
+    seen: set[int] = set()
+    for s in sorted(starts, key=lambda s: s.line):
+        if not 0 <= s.line < len(lines):
+            log.warning("Dropping planned topic %s: line number is outside the page", s)
+        elif s.line in seen:
+            log.warning("Dropping planned topic %s: another topic already starts on that line", s)
+        else:
+            seen.add(s.line)
+            good.append(replace(s, heading_lines=0, level=1, section="", title=" ".join(s.title.split())[:MAX_TOPIC_TITLE_CHARS]))
+    return good
 
 
 def validate_starts(starts: list[Start], lines: list[Line], after: Sequence[Line] = ()) -> list[Start]:
@@ -244,5 +263,92 @@ class OpenAIPlanner:
                 Start(line=int(s["line"]), heading_lines=int(s["heading_lines"]), section=str(s["section"]).strip(), level=int(s["level"]))
                 for s in starts
             ]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PlannerError(f"Could not read OpenAI's answer for page {page.page}: {exc}") from exc
+
+
+
+# --- OpenAI, documents without headings -----------------------------------------------------------
+
+TOPIC_SYSTEM_PROMPT = """You split a document that has no headings into topics. It is plain written text.
+You get the numbered lines of ONE page (the current page), plus a little of the pages around it. Return every line of the current page where a NEW topic begins, with a short title for it.
+
+Rules:
+- A topic is a stretch of text about one subject. It ends where the next topic begins, and may run over several pages. Start a new topic only when the subject really changes, not at every paragraph.
+- "line" is the number of the first line of the new topic. That line stays part of the topic's text.
+- "title" is a short descriptive title of the topic, at most 10 words, in the language of the text. You write it; it is not in the document.
+- A topic may only START on a line of the current page. Never return a line from the "previous page" or "next page" blocks.
+- Text at the top of the current page that goes on with the topic from the previous page is not a new topic: do not return it. Use the context and the "previous page" block to tell.
+- If the context says this is the start of the document, the first line of the page starts the first topic: return line 0 with its title.
+- If no topic starts on the current page, return an empty list.
+- You only choose line numbers and write titles. Never rewrite, shorten or invent the document's text."""
+
+TOPIC_RESPONSE_SCHEMA = {
+    "name": "page_topics",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["starts"],
+        "properties": {
+            "starts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["line", "title"],
+                    "properties": {"line": {"type": "integer"}, "title": {"type": "string"}},
+                },
+            }
+        },
+    },
+}
+
+
+def build_topic_message(page: PageInput) -> str:
+    def clip(text: str) -> str:
+        return text[:MAX_LINE_CHARS]
+
+    parts = [f"Context from earlier pages (not part of this page):\n{page.context}"]
+    if page.before:
+        tail = "\n".join(f"  {clip(ln.text)}" for ln in page.before)
+        parts.append(f"End of the previous page (context only, do NOT return these lines):\n{tail}")
+    numbered = "\n".join(f"[{i}] {clip(ln.text)}" for i, ln in enumerate(page.lines))
+    parts.append(f"Current page {page.page} (return topic starts from THESE lines only):\n{numbered}")
+    if page.after:
+        first = len(page.lines)
+        preview = "\n".join(f"[{first + i}] {clip(ln.text)}" for i, ln in enumerate(page.after))
+        parts.append(f"Start of the next page (preview only: never start a topic here):\n{preview}")
+    return "\n\n".join(parts)
+
+
+class OpenAITopicPlanner(OpenAIPlanner):
+    """Decides where topics start in a document without headings, and titles them. Same pages-with-neighbours
+    approach as OpenAIPlanner; the chunker cuts the document's own lines at the lines it chooses."""
+
+    topics = True  # tells chunk_pdf to cut topics (no heading lines to consume)
+
+    def _request_body(self, page: PageInput) -> dict:
+        body: dict = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": TOPIC_SYSTEM_PROMPT},
+                {"role": "user", "content": build_topic_message(page)},
+            ],
+            "response_format": {"type": "json_schema", "json_schema": TOPIC_RESPONSE_SCHEMA},
+        }
+        if self.model.startswith(("gpt-4", "gpt-3")):
+            body["temperature"] = 0
+        return body
+
+    def plan_page(self, page: PageInput) -> list[Start]:
+        if not page.lines:
+            return []
+        message = self._post(self._request_body(page))["choices"][0]["message"]
+        if message.get("refusal"):
+            raise PlannerError(f"OpenAI refused page {page.page}: {message['refusal']}")
+        try:
+            starts = json.loads(message["content"])["starts"]
+            return [Start(line=int(s["line"]), heading_lines=0, section="", level=1, title=str(s["title"])) for s in starts]
         except (KeyError, TypeError, ValueError) as exc:
             raise PlannerError(f"Could not read OpenAI's answer for page {page.page}: {exc}") from exc

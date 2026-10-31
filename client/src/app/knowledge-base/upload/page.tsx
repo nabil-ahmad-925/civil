@@ -6,6 +6,7 @@ import { Card, ManualTag, PageHeader } from "@/components/standards/ui";
 import { ingestDocument, uploadDocument } from "@/lib/documents/api";
 import {
   MANUALS,
+  MAX_MANUAL_CHARS,
   MAX_UPLOAD_BYTES,
   formatBytes,
   type DocumentRecord,
@@ -51,6 +52,9 @@ function Step({ n, label, detail, state }: { n: number; label: string; detail?: 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [manual, setManual] = useState<Manual | null>(null);
+  // The fourth choice: a document without numbered headings, uploaded under a name the user types.
+  const [other, setOther] = useState(false);
+  const [otherName, setOtherName] = useState("");
   const [version, setVersion] = useState("");
   const [dragging, setDragging] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -59,6 +63,7 @@ export default function UploadPage() {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const chosenManual = other ? otherName.replace(/\s+/g, " ").trim() : manual;
   const busy = phase === "uploading" || phase === "ingesting";
   const started = phase !== "idle";
 
@@ -75,7 +80,7 @@ export default function UploadPage() {
     }
     setFile(f);
     const guess = guessManual(f.name);
-    if (guess) setManual(guess);
+    if (guess && !other) setManual(guess);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -92,13 +97,13 @@ export default function UploadPage() {
   }
 
   async function start() {
-    if (!file || !manual || busy) return;
+    if (!file || !chosenManual || busy) return;
     setError(null);
     setProgress(0);
     setPhase("uploading");
     let uploaded: DocumentRecord;
     try {
-      uploaded = await uploadDocument(file, { manual, version: version.trim() }, setProgress);
+      uploaded = await uploadDocument(file, { manual: chosenManual, version: version.trim() }, setProgress);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
       setPhase("idle");
@@ -111,6 +116,8 @@ export default function UploadPage() {
   function reset() {
     setFile(null);
     setManual(null);
+    setOther(false);
+    setOtherName("");
     setVersion("");
     setDoc(null);
     setError(null);
@@ -186,21 +193,56 @@ export default function UploadPage() {
 
             <div className="mt-6">
               <p className="mb-2 text-sm font-medium text-texto">Which manual is this?</p>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {MANUALS.map((m) => (
                   <button
                     key={m.id}
                     type="button"
-                    onClick={() => setManual(m.id)}
+                    onClick={() => {
+                      setOther(false);
+                      setManual(m.id);
+                    }}
                     className={`rounded-xl border px-4 py-3 text-left transition ${
-                      manual === m.id ? "border-principal bg-mint ring-2 ring-lime" : "border-line bg-blanco hover:border-principal/40"
+                      !other && manual === m.id ? "border-principal bg-mint ring-2 ring-lime" : "border-line bg-blanco hover:border-principal/40"
                     }`}
                   >
                     <ManualTag id={m.id} />
                     <p className="mt-1.5 text-sm text-texto">{m.label}</p>
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setOther(true)}
+                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                    other ? "border-principal bg-mint ring-2 ring-lime" : "border-line bg-blanco hover:border-principal/40"
+                  }`}
+                >
+                  <span className="rounded-md border border-principal-deep px-1.5 py-0.5 font-mono text-[11px] font-semibold text-principal-deep">
+                    Other
+                  </span>
+                  <p className="mt-1.5 text-sm text-texto">Another document: type its name</p>
+                </button>
               </div>
+              {other && (
+                <div className="mt-3">
+                  <label htmlFor="manual-name" className="mb-2 block text-sm font-medium text-texto">
+                    Name of the manual
+                  </label>
+                  <input
+                    id="manual-name"
+                    value={otherName}
+                    onChange={(e) => setOtherName(e.target.value)}
+                    maxLength={MAX_MANUAL_CHARS}
+                    autoFocus
+                    placeholder="e.g. Drainage Memo"
+                    className="w-full rounded-xl border border-line bg-blanco px-4 py-3 text-sm outline-none transition placeholder:text-muted/60 focus:border-principal focus:ring-4 focus:ring-lime/70"
+                  />
+                  <p className="mt-1.5 text-xs text-muted">
+                    For a document with no numbered headings. A model reads it page by page and splits it into topics. The same
+                    name on a later upload is the same manual.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="mt-5">
@@ -218,7 +260,7 @@ export default function UploadPage() {
 
             <button
               onClick={start}
-              disabled={!file || !manual}
+              disabled={!file || !chosenManual}
               className="mt-6 w-full rounded-xl bg-principal px-5 py-3 text-sm font-medium text-blanco shadow-md shadow-principal/25 transition hover:bg-principal-deep disabled:cursor-not-allowed disabled:opacity-50"
             >
               Upload and ingest
@@ -229,7 +271,7 @@ export default function UploadPage() {
         {started && (
           <>
             <div className="mb-5 flex items-center gap-3">
-              {manual && <ManualTag id={manual} />}
+              {chosenManual && <ManualTag id={chosenManual} />}
               <p className="min-w-0 truncate text-sm font-medium text-texto">{file?.name}</p>
             </div>
             <ol className="space-y-4">

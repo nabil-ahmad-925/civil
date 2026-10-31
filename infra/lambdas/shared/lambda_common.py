@@ -94,9 +94,10 @@ def json_body(event: dict) -> dict:
 def parse_manual(value: Any) -> str | None:
     if value in (None, ""):
         return None
-    if value not in MANUALS:
-        raise HttpError(400, f"manual must be one of {', '.join(MANUALS)}.")
-    return value
+    # PPM, HDM, CADD, or the name typed for a document without headings.
+    if not isinstance(value, str) or not value.strip() or len(value) > 80:
+        raise HttpError(400, "manual must be a name of up to 80 characters.")
+    return " ".join(value.split())
 
 
 def node_json(n) -> dict:  # noqa: ANN001

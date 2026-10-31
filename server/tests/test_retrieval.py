@@ -17,7 +17,7 @@ def test_hits_come_with_text_and_the_path_of_parent_sections(client, repo, pdfs)
     assert h.path == ["2 Project Plans", "2.1 General"] and "district and county" in h.node.text
 
 
-def test_a_hit_brings_along_the_sections_it_mentions_and_is_mentioned_by(client, repo, pdfs):
+def test_a_hit_brings_along_only_the_sections_it_mentions(client, repo, pdfs):
     upload_and_ingest(client, "PPM", pdfs["PPM"])
     hits = search(repo, FakeEmbedder(), "alignment", k=20)
     layout = next(h for h in hits if h.node.section == "2.2")
@@ -25,7 +25,7 @@ def test_a_hit_brings_along_the_sections_it_mentions_and_is_mentioned_by(client,
     assert [(ln.node.section, ln.relation) for ln in layout.linked if ln.relation == "mentions"] == [("2.1.3", "mentions")]
     assert "title block" in layout.linked[0].node.text
     title_block = next(h for h in hits if h.node.section == "2.1.3")
-    assert [ln.node.section for ln in title_block.linked if ln.relation == "mentioned_by"] == ["2.2"]
+    assert title_block.linked == []  # 2.2 points to 2.1.3, but sections that merely point to a hit are not brought along
 
 
 def test_a_linked_section_that_is_also_a_hit_is_flagged(client, repo, pdfs):

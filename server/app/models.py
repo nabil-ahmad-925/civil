@@ -1,11 +1,39 @@
 """Domain models. Field names match the database columns in sql/schema.sql."""
 
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
-Manual = Literal["PPM", "HDM", "CADD"]
+# The three manuals with numbered headings. Any other name a user types at upload is a document without headings:
+# it is cut into topics by the topic planner (ingestion/planner.py) instead.
+CORE_MANUALS = ("PPM", "HDM", "CADD")
+MAX_MANUAL_CHARS = 80
+Manual = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_MANUAL_CHARS)]
+
+
+def normalize_manual(name: str, known: list[str] | tuple[str, ...] = ()) -> str:
+    """The manual name as stored: spaces tidied, PPM/HDM/CADD in capitals, and a name that differs only in case from
+    one already in `known` spelled as that one, so "drainage memo" and "Drainage Memo" are one manual."""
+    name = " ".join(name.split())
+    if not name:
+        raise ValueError("The manual name is required.")
+    if len(name) > MAX_MANUAL_CHARS:
+        raise ValueError(f"The manual name is longer than {MAX_MANUAL_CHARS} characters.")
+    if any(ord(c) < 32 for c in name):
+        raise ValueError("The manual name has control characters.")
+    for core in CORE_MANUALS:
+        if name.casefold() == core.casefold():
+            return core
+    for other in known:
+        if name.casefold() == other.casefold():
+            return other
+    return name
+
+
+def is_core_manual(name: str) -> bool:
+    return name in CORE_MANUALS
+
 # OTHER: the reference points at a document that is not one of the three manuals (named in target_label).
 TargetManual = Literal["PPM", "HDM", "CADD", "OTHER"]
 
