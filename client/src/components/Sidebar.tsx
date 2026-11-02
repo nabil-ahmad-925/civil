@@ -20,6 +20,15 @@ const navItems = [
     ),
   },
   {
+    href: "/drawings",
+    label: "Drawings",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75 3.75 4.5v12.75L9 19.5m0-12.75 6-2.25m-6 2.25V19.5m6-15 5.25 2.25V19.5L15 17.25m0-12.75v12.75m0 0-6 2.25" />
+      </svg>
+    ),
+  },
+  {
     href: "/chat",
     label: "Chat",
     icon: (

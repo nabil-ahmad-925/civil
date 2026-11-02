@@ -57,6 +57,13 @@ Interactive API docs: http://localhost:8000/docs
 | DELETE | `/api/documents/{id}` | Removes the file, its chunks and its cross-references |
 | GET | `/api/nodes?document_id=…&q=…` | The document's nodes in reading order, without text, each with its `depth`. `q`: words that must all appear in a node's section, title or text |
 | GET | `/api/nodes/{id}` | One node: exact text, source file, parent, applicability/exceptions (from tagging), and its cross-references in both directions |
+| GET | `/api/drawings` | All drawing sets, with status, sheets, counts and model cost |
+| POST | `/api/drawings?name=…&filename=…` | Raw PNG, JPEG, WEBP or TIFF as the body. One sheet per image, or per page of a TIFF |
+| POST | `/api/drawings/{id}/sheets?filename=…` | Adds sheets to a drawing set |
+| POST | `/api/drawings/{id}/process?tile_sweep=…` | Reads every sheet with the vision model and saves proposed features, notes, links and facts. Safe to run again |
+| GET | `/api/drawings/{id}/review` | Everything found per sheet, and the list of what a person has to look at |
+| GET | `/api/drawings/sheets/{id}/image`, `/api/drawings/facts/{id}/evidence`, `/api/drawings/bindings/{id}/evidence` | The sheet image, and the crop behind a fact or a link |
+| DELETE | `/api/drawings/{id}` | Removes the drawing, its images and everything found on it |
 
 Responses are camelCase and errors are `{ "error": "…" }`, which is what the Next.js client reads.
 
