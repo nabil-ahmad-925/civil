@@ -4,19 +4,21 @@ export function PageHeader({
   title,
   subtitle,
   sampleData = true,
+  eyebrow = "Standards · Phase 1",
   children,
 }: {
   title: string;
   subtitle?: string;
   /** Shows the "Sample data" badge; turn off for pages backed by real data. */
   sampleData?: boolean;
+  eyebrow?: string;
   children?: React.ReactNode;
 }) {
   return (
     <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
         <div className="mb-2 flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-principal">Standards · Phase 1</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-principal">{eyebrow}</span>
           {sampleData && (
             <span className="rounded-full border border-line bg-blanco px-2 py-0.5 text-[11px] text-muted">Sample data</span>
           )}

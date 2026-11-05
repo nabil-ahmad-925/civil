@@ -10,6 +10,12 @@ from .models import (
     Classification,
     CrossRef,
     Document,
+    Drawing,
+    DrawingFact,
+    DrawingFeature,
+    DrawingNote,
+    DrawingSheet,
+    DrawingStatus,
     Figure,
     DocStatus,
     ManualTable,
@@ -17,6 +23,7 @@ from .models import (
     Node,
     NodeCondition,
     NodeSummary,
+    NoteBinding,
     RefStatus,
     RequirementClass,
     ResolvedBy,
@@ -198,3 +205,126 @@ class CrossRefRowOut(CamelModel):
     target: NodeRefOut | None
     target_figure: FigureOut | None = None
     target_table: TableOut | None = None
+
+
+class DrawingSheetOut(CamelModel):
+    """One sheet. Its picture is at GET /api/drawings/sheets/{id}/image."""
+
+    id: str
+    drawing_id: str
+    number: int
+    original_name: str
+    width: int
+    height: int
+    warnings: list[str]
+    failures: list[str]
+
+    @classmethod
+    def from_sheet(cls, s: DrawingSheet) -> "DrawingSheetOut":
+        return cls(**s.model_dump(include=set(cls.model_fields)))
+
+
+class DrawingOut(CamelModel):
+    id: str
+    name: str
+    status: DrawingStatus
+    error: str | None = None
+    summary: dict[str, Any] | None = None
+    uploaded_at: datetime
+    sheets: list[DrawingSheetOut]
+
+    @classmethod
+    def from_drawing(cls, d: Drawing, sheets: list[DrawingSheet]) -> "DrawingOut":
+        return cls(**d.model_dump(), sheets=[DrawingSheetOut.from_sheet(s) for s in sheets])
+
+
+class FeatureRelationOut(CamelModel):
+    feature_id: str
+    relation: str
+
+
+class DrawingFeatureOut(CamelModel):
+    id: str
+    type: str
+    label: str
+    bbox: list[float] | None
+    confidence: str
+    found_by: str
+    related: list[FeatureRelationOut]
+    review_state: str
+
+    @classmethod
+    def from_feature(cls, f: DrawingFeature) -> "DrawingFeatureOut":
+        return cls(**f.model_dump(include=set(cls.model_fields)))
+
+
+class DrawingNoteOut(CamelModel):
+    id: str
+    text: str
+    bbox: list[float] | None
+    confidence: str
+    scope: str
+    found_by: str
+    review_state: str
+
+    @classmethod
+    def from_note(cls, n: DrawingNote) -> "DrawingNoteOut":
+        return cls(**n.model_dump(include=set(cls.model_fields)))
+
+
+class NoteBindingOut(CamelModel):
+    """A proposed link. The crop that shows why is at GET /api/drawings/bindings/{id}/evidence, when has_evidence."""
+
+    id: str
+    note_id: str
+    feature_id: str
+    evidence: str
+    confidence: str
+    has_evidence: bool
+    review_state: str
+
+    @classmethod
+    def from_binding(cls, b: NoteBinding) -> "NoteBindingOut":
+        return cls(**b.model_dump(exclude={"drawing_id", "image_path"}), has_evidence=bool(b.image_path))
+
+
+class DrawingFactOut(CamelModel):
+    """A value read from a crop. The crop is at GET /api/drawings/facts/{id}/evidence, when has_evidence."""
+
+    id: str
+    feature_id: str | None
+    term: str
+    status: str
+    kind: str
+    value: float | str | None
+    unit: str
+    verbatim_text: str
+    bbox: list[float] | None
+    confidence: str
+    confirmation: str
+    has_evidence: bool
+    review_state: str
+
+    @classmethod
+    def from_fact(cls, f: DrawingFact) -> "DrawingFactOut":
+        return cls(**f.model_dump(exclude={"drawing_id", "sheet_id", "image_path", "produced_by"}), has_evidence=bool(f.image_path))
+
+
+class ReviewItemOut(CamelModel):
+    kind: str
+    message: str
+    target_id: str | None
+
+
+class SheetReviewOut(CamelModel):
+    sheet: DrawingSheetOut
+    features: list[DrawingFeatureOut]
+    notes: list[DrawingNoteOut]
+    bindings: list[NoteBindingOut]
+    facts: list[DrawingFactOut]
+    needs_review: list[ReviewItemOut]
+
+
+class DrawingReviewOut(CamelModel):
+    drawing: DrawingOut
+    sheets: list[SheetReviewOut]

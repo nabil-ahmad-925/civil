@@ -6,7 +6,22 @@ import threading
 from collections import Counter
 from pathlib import Path
 
-from ..models import CrossRef, Document, Figure, ManualTable, Node, NodeCondition, NodeSummary, RefStatus
+from ..models import (
+    CrossRef,
+    Document,
+    Drawing,
+    DrawingFact,
+    DrawingFeature,
+    DrawingNote,
+    DrawingSheet,
+    Figure,
+    ManualTable,
+    Node,
+    NodeCondition,
+    NodeSummary,
+    NoteBinding,
+    RefStatus,
+)
 from .keywords import STOP_WORDS, keyword_terms
 
 # BM25 constants (the usual ones) and how much more a word in the heading counts than one in the text. The SQL in
@@ -32,6 +47,12 @@ class MemoryRepository:
         self.refs: dict[str, CrossRef] = {}
         self.figures: dict[str, Figure] = {}
         self.tables: dict[str, ManualTable] = {}
+        self.drawings: dict[str, Drawing] = {}
+        self.sheets: dict[str, DrawingSheet] = {}
+        self.drawing_features: dict[str, DrawingFeature] = {}
+        self.drawing_notes: dict[str, DrawingNote] = {}
+        self.note_bindings: dict[str, NoteBinding] = {}
+        self.drawing_facts: dict[str, DrawingFact] = {}
 
     # --- source documents -------------------------------------------------
     def list_documents(self) -> list[Document]:
@@ -302,3 +323,74 @@ class MemoryRepository:
 
     def list_conditions(self, node_id: str) -> list[NodeCondition]:
         return []  # nothing writes conditions until the tagging stage exists
+
+    # --- drawings ---------------------------------------------------------
+    def list_drawings(self) -> list[Drawing]:
+        with self._lock:
+            return sorted(self.drawings.values(), key=lambda d: d.uploaded_at, reverse=True)
+
+    def get_drawing(self, drawing_id: str) -> Drawing | None:
+        return self.drawings.get(drawing_id)
+
+    def insert_drawing(self, drawing: Drawing) -> None:
+        with self._lock:
+            self.drawings[drawing.id] = drawing
+
+    def update_drawing(self, drawing_id: str, **fields: object) -> None:
+        with self._lock:
+            self.drawings[drawing_id] = self.drawings[drawing_id].model_copy(update=fields)
+
+    def delete_drawing(self, drawing_id: str) -> None:
+        with self._lock:
+            self.drawings.pop(drawing_id, None)
+            # Mirrors ON DELETE CASCADE.
+            self.delete_drawing_results(drawing_id)
+            self.sheets = {k: s for k, s in self.sheets.items() if s.drawing_id != drawing_id}
+
+    def insert_sheet(self, sheet: DrawingSheet) -> None:
+        with self._lock:
+            self.sheets[sheet.id] = sheet
+
+    def get_sheet(self, sheet_id: str) -> DrawingSheet | None:
+        return self.sheets.get(sheet_id)
+
+    def list_sheets(self, drawing_id: str) -> list[DrawingSheet]:
+        return sorted((s for s in self.sheets.values() if s.drawing_id == drawing_id), key=lambda s: s.number)
+
+    def update_sheet(self, sheet_id: str, **fields: object) -> None:
+        with self._lock:
+            self.sheets[sheet_id] = self.sheets[sheet_id].model_copy(update=fields)
+
+    def save_drawing_results(
+        self, features: list[DrawingFeature], notes: list[DrawingNote], bindings: list[NoteBinding], facts: list[DrawingFact]
+    ) -> None:
+        with self._lock:
+            self.drawing_features.update({f.id: f for f in features})
+            self.drawing_notes.update({n.id: n for n in notes})
+            self.note_bindings.update({b.id: b for b in bindings})
+            self.drawing_facts.update({f.id: f for f in facts})
+
+    def delete_drawing_results(self, drawing_id: str) -> None:
+        with self._lock:
+            self.drawing_features = {k: f for k, f in self.drawing_features.items() if f.drawing_id != drawing_id}
+            self.drawing_notes = {k: n for k, n in self.drawing_notes.items() if n.drawing_id != drawing_id}
+            self.note_bindings = {k: b for k, b in self.note_bindings.items() if b.drawing_id != drawing_id}
+            self.drawing_facts = {k: f for k, f in self.drawing_facts.items() if f.drawing_id != drawing_id}
+
+    def list_drawing_features(self, drawing_id: str) -> list[DrawingFeature]:
+        return [f for f in self.drawing_features.values() if f.drawing_id == drawing_id]
+
+    def list_drawing_notes(self, drawing_id: str) -> list[DrawingNote]:
+        return [n for n in self.drawing_notes.values() if n.drawing_id == drawing_id]
+
+    def list_note_bindings(self, drawing_id: str) -> list[NoteBinding]:
+        return [b for b in self.note_bindings.values() if b.drawing_id == drawing_id]
+
+    def list_drawing_facts(self, drawing_id: str) -> list[DrawingFact]:
+        return [f for f in self.drawing_facts.values() if f.drawing_id == drawing_id]
+
+    def get_drawing_fact(self, fact_id: str) -> DrawingFact | None:
+        return self.drawing_facts.get(fact_id)
+
+    def get_note_binding(self, binding_id: str) -> NoteBinding | None:
+        return self.note_bindings.get(binding_id)

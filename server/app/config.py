@@ -57,6 +57,28 @@ class Settings(BaseSettings):
     keyword_min_score_fts: float = 0.3
     keyword_min_score_bm25: float = 4.0
 
+    # Drawings: a vision model reads each sheet (app/drawings/). Needs OPENAI_API_KEY.
+    drawing_vision_model: str = "gpt-6-astra"
+    # Empty leaves the model's default. Otherwise low, medium, high...
+    drawing_reasoning_effort: str = ""
+    # A picture over this many patches of 32x32 px is shrunk first. OpenAI's own limit is 30,000 (it rejects more, it does not
+    # shrink), but measured on an 8000 x 6000 sheet with gpt-6-astra, positions were within 18 px of 8000 up to 25,000
+    # patches and off by up to 400 px at 30,000, which cuts crops in the wrong place. Measure again before raising it.
+    drawing_max_patches: int = 20000
+    # A feature and its notes are read from one crop unless that crop's long side would be over this.
+    drawing_max_crop_px: int = 2400
+    # A sheet whose long side is under this gets a warning: small text will not be readable.
+    drawing_min_long_side_px: int = 2000
+    drawing_workers: int = 4
+    # Off: only the whole-sheet pass finds things. On: overlapping tiles also look for what it missed, at one more call
+    # per tile. Turn it on only if scoring on real drawings shows the whole-sheet pass misses too much.
+    drawing_tile_sweep: bool = False
+    drawing_tile_px: int = 2000
+    drawing_tile_overlap: float = 0.15
+    # For the cost estimate only. Check these against OpenAI's price list.
+    drawing_input_usd_per_m: float = 10.0
+    drawing_output_usd_per_m: float = 50.0
+
     embedding_provider: Literal["none", "openai"] = "none"
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = 1536

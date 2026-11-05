@@ -3,6 +3,7 @@ uvicorn[standard]>=0.54
 pydantic-settings>=2.16
 supabase>=2.32
 pymupdf>=1.28,<2
+pillow>=11
 httpx>=0.28
 pytest>=9.0
 psycopg[binary]>=3.2
