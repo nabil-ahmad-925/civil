@@ -3,10 +3,26 @@
 import logging
 from typing import Any, Callable
 
+import httpx
 from postgrest.exceptions import APIError
-from supabase import Client, create_client
+from supabase import Client, ClientOptions, create_client
 
-from ..models import CrossRef, Document, Figure, ManualTable, Node, NodeCondition, NodeSummary, RefStatus
+from ..models import (
+    CrossRef,
+    Document,
+    Drawing,
+    DrawingFact,
+    DrawingFeature,
+    DrawingNote,
+    DrawingSheet,
+    Figure,
+    ManualTable,
+    Node,
+    NodeCondition,
+    NodeSummary,
+    NoteBinding,
+    RefStatus,
+)
 from .keywords import keyword_terms
 from .paradedb import ParadeDbKeywordSearch
 
@@ -39,7 +55,15 @@ class SupabaseRepository:
     ) -> None:
         if not url or not service_role_key:
             raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set (see .env.example).")
-        self.client: Client = create_client(url, service_role_key)
+        # HTTP/1.1 with short keep-alive: pooled HTTP/2 connections get dropped by the server while idle, and the
+        # next request then fails with "Server disconnected".
+        http = httpx.Client(
+            http2=False,
+            timeout=120,
+            limits=httpx.Limits(max_keepalive_connections=10, keepalive_expiry=5),
+            transport=httpx.HTTPTransport(retries=2),
+        )
+        self.client: Client = create_client(url, service_role_key, options=ClientOptions(httpx_client=http))
         self.bucket = bucket
         self.keyword_backend = keyword_backend
         if keyword_backend == "paradedb":
@@ -284,3 +308,78 @@ class SupabaseRepository:
     def list_conditions(self, node_id: str) -> list[NodeCondition]:
         rows = self._table("node_conditions").select("*").eq("node_id", node_id).execute().data
         return [NodeCondition(**r) for r in rows]
+
+    # --- drawings ---------------------------------------------------------
+    def list_drawings(self) -> list[Drawing]:
+        rows = self._table("drawings").select("*").order("uploaded_at", desc=True).execute().data
+        return [Drawing(**r) for r in rows]
+
+    def get_drawing(self, drawing_id: str) -> Drawing | None:
+        rows = self._table("drawings").select("*").eq("id", drawing_id).limit(1).execute().data
+        return Drawing(**rows[0]) if rows else None
+
+    def insert_drawing(self, drawing: Drawing) -> None:
+        self._table("drawings").insert(drawing.model_dump(mode="json")).execute()
+
+    def update_drawing(self, drawing_id: str, **fields: object) -> None:
+        self._table("drawings").update(fields).eq("id", drawing_id).execute()
+
+    def delete_drawing(self, drawing_id: str) -> None:
+        # sheets, features, notes, bindings and facts go with it (ON DELETE CASCADE)
+        self._table("drawings").delete().eq("id", drawing_id).execute()
+
+    def insert_sheet(self, sheet: DrawingSheet) -> None:
+        self._table("drawing_sheets").insert(sheet.model_dump(mode="json")).execute()
+
+    def get_sheet(self, sheet_id: str) -> DrawingSheet | None:
+        rows = self._table("drawing_sheets").select("*").eq("id", sheet_id).limit(1).execute().data
+        return DrawingSheet(**rows[0]) if rows else None
+
+    def list_sheets(self, drawing_id: str) -> list[DrawingSheet]:
+        rows = self._paged(lambda: self._table("drawing_sheets").select("*").eq("drawing_id", drawing_id).order("number"))
+        return [DrawingSheet(**r) for r in rows]
+
+    def update_sheet(self, sheet_id: str, **fields: object) -> None:
+        self._table("drawing_sheets").update(fields).eq("id", sheet_id).execute()
+
+    def save_drawing_results(
+        self, features: list[DrawingFeature], notes: list[DrawingNote], bindings: list[NoteBinding], facts: list[DrawingFact]
+    ) -> None:
+        # In this order: the later tables point at the earlier ones.
+        for table, rows in (
+            ("drawing_features", features),
+            ("drawing_notes", notes),
+            ("drawing_note_bindings", bindings),
+            ("drawing_facts", facts),
+        ):
+            for batch in _chunks(rows, REF_BATCH):
+                self._table(table).insert([r.model_dump(mode="json") for r in batch]).execute()
+
+    def delete_drawing_results(self, drawing_id: str) -> None:
+        # bindings and facts go with the features and notes they point at; a sheet-level fact has no feature
+        for table in ("drawing_facts", "drawing_note_bindings", "drawing_notes", "drawing_features"):
+            self._table(table).delete().eq("drawing_id", drawing_id).execute()
+
+    def list_drawing_features(self, drawing_id: str) -> list[DrawingFeature]:
+        rows = self._paged(lambda: self._table("drawing_features").select("*").eq("drawing_id", drawing_id).order("id"))
+        return [DrawingFeature(**r) for r in rows]
+
+    def list_drawing_notes(self, drawing_id: str) -> list[DrawingNote]:
+        rows = self._paged(lambda: self._table("drawing_notes").select("*").eq("drawing_id", drawing_id).order("id"))
+        return [DrawingNote(**r) for r in rows]
+
+    def list_note_bindings(self, drawing_id: str) -> list[NoteBinding]:
+        rows = self._paged(lambda: self._table("drawing_note_bindings").select("*").eq("drawing_id", drawing_id).order("id"))
+        return [NoteBinding(**r) for r in rows]
+
+    def list_drawing_facts(self, drawing_id: str) -> list[DrawingFact]:
+        rows = self._paged(lambda: self._table("drawing_facts").select("*").eq("drawing_id", drawing_id).order("id"))
+        return [DrawingFact(**r) for r in rows]
+
+    def get_drawing_fact(self, fact_id: str) -> DrawingFact | None:
+        rows = self._table("drawing_facts").select("*").eq("id", fact_id).limit(1).execute().data
+        return DrawingFact(**rows[0]) if rows else None
+
+    def get_note_binding(self, binding_id: str) -> NoteBinding | None:
+        rows = self._table("drawing_note_bindings").select("*").eq("id", binding_id).limit(1).execute().data
+        return NoteBinding(**rows[0]) if rows else None

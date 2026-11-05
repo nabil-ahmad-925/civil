@@ -50,8 +50,9 @@ def _chunk_and_save(
     result = chunk_pdf(pdf, doc.manual, doc.id, planner, get_settings().chunk_context_lines)
     if not result.nodes:
         raise IngestError(
-            f"No headings found in {doc.original_name}. "
-            "Is it a text PDF (not a scan) with numbered section headings?"
+            f"No text found in {doc.original_name}. Is it a text PDF (not a scan)?"
+            if getattr(planner, "topics", False)
+            else f"No headings found in {doc.original_name}. Is it a text PDF (not a scan) with numbered section headings?"
         )
     refs = extract_all(result.nodes, ref_extractor, get_settings().ref_extractor_workers)
     try:

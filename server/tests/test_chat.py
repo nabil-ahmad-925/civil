@@ -65,7 +65,11 @@ def test_only_cited_sources_are_returned_and_uncited_answers_show_the_matches(cl
     cited = answer_question(repo, FakeEmbedder(), FakeLLM("Only this one [S2]."), settings(chat_top_k=3), "alignment layout")
     assert [s.ref for s in cited.sources] == ["S2"]
     none = answer_question(repo, FakeEmbedder(), FakeLLM("No citations here."), settings(chat_top_k=2), "alignment layout")
-    assert none.sources and {s.relation for s in none.sources} == {"match"}
+    assert none.sources and {s.relation for s in none.sources} == {"match", "mentions"}
+    # a returned section always comes with the sections its own text mentions, cited or not
+    shown = {s.ref for s in none.sources}
+    assert all(s.via in shown for s in none.sources if s.relation == "mentions")
+    assert any(s.relation == "mentions" and s.section == "2.1.3" for s in none.sources)
 
 
 def test_a_short_follow_up_is_searched_with_the_previous_question(client, repo, pdfs):

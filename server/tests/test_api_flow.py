@@ -33,7 +33,8 @@ def test_upload_rejections(client, pdfs):
     assert upload(client, "PPM", b"not a pdf at all").json() == {"error": "File is not a PDF."}
     assert upload(client, "PPM", b"").json() == {"error": "File is empty."}
     assert upload(client, "PPM", pdfs["PPM"], name="  ").json() == {"error": "Filename is required."}
-    assert upload(client, "XYZ", pdfs["PPM"]).status_code == 422
+    assert upload(client, "   ", pdfs["PPM"]).status_code in (400, 422)  # a manual needs a name
+    assert upload(client, "x" * 81, pdfs["PPM"]).status_code == 400
 
 
 def test_the_same_file_can_be_uploaded_again(client, repo, pdfs):

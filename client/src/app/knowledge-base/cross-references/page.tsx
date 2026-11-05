@@ -114,7 +114,7 @@ export default function CrossReferencesPage() {
                   <tr key={r.id} className="transition hover:bg-fondo">
                     <td className="px-5 py-3">
                       <Link
-                        href={`/knowledge-base/browse?manual=${r.source.manual}&node=${r.source.id}`}
+                        href={`/knowledge-base/browse?manual=${encodeURIComponent(r.source.manual)}&node=${r.source.id}`}
                         className="inline-flex items-center gap-2 hover:underline"
                         title={r.source.title}
                       >
@@ -128,7 +128,7 @@ export default function CrossReferencesPage() {
                         <ManualTag id={r.targetManual} />
                         {r.target ? (
                           <Link
-                            href={`/knowledge-base/browse?manual=${r.target.manual}&node=${r.target.id}`}
+                            href={`/knowledge-base/browse?manual=${encodeURIComponent(r.target.manual)}&node=${r.target.id}`}
                             className="text-principal hover:underline"
                           >
                             {r.target.section} {r.target.title}

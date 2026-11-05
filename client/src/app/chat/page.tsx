@@ -47,7 +47,7 @@ function Sources({ sources }: { sources: ChatSource[] }) {
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded bg-lime px-1.5 py-0.5 font-semibold text-principal-deep">{s.ref}</span>
               <ManualTag id={s.manual} />
-              <Link href={`/knowledge-base/browse?manual=${s.manual}&node=${s.id}`} className="font-medium text-principal hover:underline">
+              <Link href={`/knowledge-base/browse?manual=${encodeURIComponent(s.manual)}&node=${s.id}`} className="font-medium text-principal hover:underline">
                 {s.title}
               </Link>
               <span className="text-muted">pp. {s.pageStart}–{s.pageEnd}</span>

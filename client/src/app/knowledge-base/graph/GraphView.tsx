@@ -4,7 +4,7 @@ import { hierarchy, tree } from "d3-hierarchy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, ManualTag, PageHeader } from "@/components/standards/ui";
 import { API_URL, ApiError, listDocuments } from "@/lib/documents/api";
-import { MANUALS, type Manual } from "@/lib/documents/types";
+import { MANUALS, manualTabs, type Manual } from "@/lib/documents/types";
 import { listCrossRefs, listFigures, listNodes } from "@/lib/nodes/api";
 import type { CrossRefRow, Figure, NodeSummary } from "@/lib/nodes/types";
 
@@ -33,7 +33,9 @@ const CARD_W = 184;
 const CARD_H = 48;
 const GAP_X = 18;
 const GAP_Y = 52;
-const COLORS: Record<Manual, string> = { PPM: "#145b4b", HDM: "#b7791f", CADD: "#2b6cb0" };
+const COLORS: Record<string, string> = { PPM: "#145b4b", HDM: "#b7791f", CADD: "#2b6cb0" };
+const OTHER_COLOR = "#6b46c1"; // a manual the user named at upload
+const colorOf = (m: string) => COLORS[m] ?? OTHER_COLOR;
 const FIGURE_COLOR = "#d9822b";
 const TITLE_CHARS = 27;
 
@@ -67,7 +69,7 @@ export default function GraphView() {
       ]);
       const nodes = nodeLists.flat();
       setData({ nodes, figures: figureLists.flat(), refs });
-      const present = MANUALS.map((m) => m.id).filter((id) => nodes.some((n) => n.manual === id));
+      const present = manualTabs(nodes.map((n) => n.manual)).filter((id) => nodes.some((n) => n.manual === id));
       if (present.length && !present.includes("PPM")) setManual(present[0]);
     })().catch((e) =>
       setError(e instanceof ApiError ? e.message : `Cannot reach the server at ${API_URL}. Start the backend, then reload.`),
@@ -368,19 +370,19 @@ export default function GraphView() {
       ) : (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            {MANUALS.map((m) => (
+            {manualTabs(data.nodes.map((n) => n.manual)).map((id) => (
               <button
-                key={m.id}
-                disabled={!manualCounts[m.id]}
+                key={id}
+                disabled={!manualCounts[id]}
                 onClick={() => {
-                  setManual(m.id);
+                  setManual(id);
                   setSelectedId(null);
-                  setExpanded(new Set([manualId(m.id)]));
+                  setExpanded(new Set([manualId(id)]));
                 }}
-                className={`${chip(manual === m.id)} disabled:opacity-40`}
+                className={`${chip(manual === id)} disabled:opacity-40`}
               >
-                <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: COLORS[m.id] }} />
-                {m.id} ({manualCounts[m.id] ?? 0})
+                <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: colorOf(id) }} />
+                {id} ({manualCounts[id] ?? 0})
               </button>
             ))}
             <span className="mx-1 h-4 w-px bg-line" />
@@ -484,7 +486,7 @@ export default function GraphView() {
                   {layout.nodes.map(({ node: n, x, y }) => {
                     const isSel = n.id === selectedId;
                     const emphasis = isSel || pathIds.has(n.id) || childIds.has(n.id);
-                    const color = n.kind === "figure" ? FIGURE_COLOR : n.refExternal ? "#7a8580" : COLORS[n.manual];
+                    const color = n.kind === "figure" ? FIGURE_COLOR : n.refExternal ? "#7a8580" : colorOf(n.manual);
                     const isRef = n.kind === "ref";
                     const isOpen = expanded.has(n.id);
                     return (

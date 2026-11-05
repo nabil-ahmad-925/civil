@@ -7,6 +7,6 @@ export default async function BrowsePage({
   searchParams: Promise<{ manual?: string; node?: string }>;
 }) {
   const { manual, node } = await searchParams;
-  const manualId: Manual = manual === "HDM" || manual === "CADD" ? manual : "PPM";
+  const manualId: Manual = manual?.trim() ? manual.trim() : "PPM";
   return <Browser key={`${manualId}-${node ?? ""}`} initialManual={manualId} initialNode={node} />;
 }

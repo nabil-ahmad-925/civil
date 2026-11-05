@@ -1,7 +1,7 @@
 import threading
 from uuid import uuid4
 
-from ..models import Document, Manual
+from ..models import Document, Manual, is_core_manual
 from ..repository.base import Repository
 
 _lock = threading.Lock()
@@ -20,7 +20,7 @@ def finalize_upload(
             original_name=filename,
             size_bytes=size,
             sha256=sha256,
-            storage_path=f"{manual}/{doc_id}.pdf",
+            storage_path=f"{manual if is_core_manual(manual) else 'other'}/{doc_id}.pdf",  # a typed name is not a safe storage key
             status="uploaded",
         )
         repo.upload_file(doc.storage_path, tmp_path)

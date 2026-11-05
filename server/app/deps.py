@@ -1,10 +1,11 @@
 from functools import lru_cache
 
 from .config import get_settings
+from .drawings.vision import DrawingVision, OpenAIVision
 from .ingestion.chunker import RegexPlanner
 from .ingestion.crossrefs import OpenAIRefExtractor, RefExtractor
 from .ingestion.embeddings import Embedder, build_embedder
-from .ingestion.planner import NodePlanner, OpenAIPlanner
+from .ingestion.planner import NodePlanner, OpenAIPlanner, OpenAITopicPlanner
 from .repository.base import Repository
 from .repository.memory import MemoryRepository
 from .repository.supabase_repo import SupabaseRepository
@@ -32,6 +33,20 @@ def get_planner() -> NodePlanner:
 
 
 @lru_cache
+def get_topic_planner() -> NodePlanner | None:
+    """Cuts documents without headings (any manual name other than PPM, HDM, CADD). Needs OpenAI: None without a key."""
+    s = get_settings()
+    return OpenAITopicPlanner(s.openai_api_key, s.chunk_model) if s.openai_api_key else None
+
+
+@lru_cache
 def get_ref_extractor() -> RefExtractor:
     s = get_settings()
     return OpenAIRefExtractor(s.openai_api_key, s.ref_extractor_model)
+
+
+@lru_cache
+def get_drawing_vision() -> DrawingVision | None:
+    """Reads drawing sheets. None without a key."""
+    s = get_settings()
+    return OpenAIVision(s.openai_api_key, s.drawing_vision_model, s.drawing_reasoning_effort) if s.openai_api_key else None

@@ -20,7 +20,7 @@ from retrieval import Hit, is_relevant, search
 from llm_client import ChatModel
 
 NOT_COVERED = "The manuals loaded in the knowledge base do not cover this question."
-MAX_SOURCES = 12
+MAX_SOURCES = 60  # every section a hit mentions is kept; this only guards against a runaway list
 SHORT_FOLLOW_UP_WORDS = 6
 # "where / which section / which article ..." asks for the places a topic appears, not for one explanation.
 LOCATE_RE = re.compile(r"\b(where|which\s+(?:section|article|chapter|page|manual|part)s?|what\s+(?:section|article|chapter|page))\b", re.I)
@@ -205,4 +205,8 @@ def answer_question(
     # Show the sources the answer cites. An answer that cites none shows the direct matches, so the reader sees what was used.
     cited = set(re.findall(r"\[(S\d+)\]", text))
     shown = [s for s in sources if s.ref in cited] or [s for s in sources if s.relation == "match"]
+    # A returned section always comes with the sections its own text mentions, cited or not.
+    shown_refs = {s.ref for s in shown}
+    shown += [s for s in sources if s.relation == "mentions" and s.via in shown_refs and s.ref not in shown_refs]
+    shown.sort(key=lambda s: int(s.ref[1:]))
     return ChatAnswer(text, True, shown, getattr(llm, "model", None))

@@ -7,12 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from ..config import Settings, get_settings
-from ..deps import get_embedder, get_planner, get_ref_extractor, get_repo
+from ..deps import get_embedder, get_planner, get_ref_extractor, get_repo, get_topic_planner
 from ..ingestion.crossrefs import RefExtractor
 from ..ingestion.embeddings import Embedder
 from ..ingestion.planner import NodePlanner
 from ..ingestion.pipeline import IngestError, embed_missing, ingest_document, refresh_cross_refs
-from ..models import Manual
+from ..models import Manual, is_core_manual, normalize_manual
 from ..repository.base import Repository
 from ..schemas import DocumentOut
 from ..services.uploads import finalize_upload
@@ -42,6 +42,10 @@ async def upload_document(
     filename = filename.strip()
     if not filename:
         raise HTTPException(400, "Filename is required.")
+    try:  # PPM, HDM and CADD, or the name typed for a document without headings (spelled as an earlier upload spelled it)
+        manual = normalize_manual(manual, [d.manual for d in repo.list_documents()])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     hasher = hashlib.sha256()
     size = 0
@@ -85,12 +89,17 @@ def ingest(
     repo: Repository = Depends(get_repo),
     embedder: Embedder | None = Depends(get_embedder),
     planner: NodePlanner = Depends(get_planner),
+    topic_planner: NodePlanner | None = Depends(get_topic_planner),
     ref_extractor: RefExtractor = Depends(get_ref_extractor),
 ):
     """Step 2. Chunks the stored PDF and saves nodes, cross-references and vectors. Safe to run again."""
     doc = repo.get_document(doc_id)
     if not doc:
         raise HTTPException(404, "Document not found.")
+    if not is_core_manual(doc.manual):  # no numbered headings: a model decides where each topic starts
+        if topic_planner is None:
+            raise HTTPException(409, f"'{doc.manual}' has no numbered headings, so a model cuts it into topics: set OPENAI_API_KEY in server/.env.")
+        planner = topic_planner
     with _active_lock:
         if doc_id in _active:
             raise HTTPException(409, "This document is already being ingested.")

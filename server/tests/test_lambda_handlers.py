@@ -81,7 +81,7 @@ def test_requests_without_the_right_key_are_refused(h):
 
 @pytest.mark.parametrize(
     "body",
-    [{}, {"message": "  "}, {"message": "x" * 2001}, {"message": "hi", "manual": "XYZ"}, {"message": "hi", "history": "no"}, {"message": "hi", "history": [{"role": "system", "content": "x"}]}],
+    [{}, {"message": "  "}, {"message": "x" * 2001}, {"message": "hi", "manual": "x" * 81}, {"message": "hi", "history": "no"}, {"message": "hi", "history": [{"role": "system", "content": "x"}]}],
 )
 def test_bad_chat_input_is_a_400(h, body):
     assert call(h.chat, body)[0] == 400

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import NodeDetailView from "@/components/standards/NodeDetail";
 import { Card, ClassificationBadge, PageHeader } from "@/components/standards/ui";
 import { API_URL, ApiError, listDocuments } from "@/lib/documents/api";
-import { MANUALS, type DocumentRecord, type Manual } from "@/lib/documents/types";
+import { MANUALS, manualTabs, type DocumentRecord, type Manual } from "@/lib/documents/types";
 import { getNode, listNodes } from "@/lib/nodes/api";
 import type { NodeDetail, NodeRef, NodeSummary } from "@/lib/nodes/types";
 import type { Classification } from "@/lib/standards/types";
@@ -161,17 +161,17 @@ export default function Browser({ initialManual, initialNode }: { initialManual:
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <div className="inline-flex rounded-xl border border-line bg-blanco p-1 shadow-sm">
-          {MANUALS.map((m) => (
+          {manualTabs((docsAnswer?.data ?? []).map((d) => d.manual)).map((id) => (
             <button
-              key={m.id}
-              onClick={() => chooseManual(m.id)}
-              title={m.label}
+              key={id}
+              onClick={() => chooseManual(id)}
+              title={MANUALS.find((m) => m.id === id)?.label ?? id}
               className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                m.id === manual ? "bg-principal text-blanco shadow" : "text-texto hover:bg-mint"
+                id === manual ? "bg-principal text-blanco shadow" : "text-texto hover:bg-mint"
               }`}
             >
-              {m.id}
-              {docsAnswer?.data && !ingestedManuals.has(m.id) && <span className="ml-1.5 text-xs opacity-60">–</span>}
+              {id}
+              {docsAnswer?.data && !ingestedManuals.has(id) && <span className="ml-1.5 text-xs opacity-60">–</span>}
             </button>
           ))}
         </div>

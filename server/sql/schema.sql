@@ -11,7 +11,8 @@
 --   alter table cross_refs drop constraint if exists cross_refs_status_check;
 --   alter table cross_refs add constraint cross_refs_status_check check (status in ('unresolved', 'resolved', 'awaiting_cross', 'external'));
 --
--- Already have the tables? Add figures with sql/002_figures.sql and tables with sql/005_tables.sql.
+-- Already have the tables? Add figures with sql/002_figures.sql, tables with sql/005_tables.sql and drawings with
+-- sql/007_drawings.sql.
 --
 -- If you already ran an earlier version of this file (it had ingestion_jobs and batch_id), reset first:
 --   drop table if exists cross_refs, node_conditions, nodes, ingestion_jobs, source_documents cascade;
@@ -30,7 +31,7 @@ on conflict (id) do nothing;
 --   failed      ingest raised; `error` says why. Run ingest again after fixing the cause.
 create table if not exists source_documents (
   id            uuid primary key,
-  manual        text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  manual        text not null,
   version       text not null,
   original_name text not null,
   size_bytes    bigint not null,
@@ -47,7 +48,7 @@ create table if not exists source_documents (
 create table if not exists nodes (
   id               uuid primary key,
   document_id      uuid not null references source_documents (id) on delete cascade,
-  manual           text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  manual           text not null,
   chapter          text not null default '',
   section          text not null,
   title            text not null,
@@ -84,7 +85,7 @@ create index if not exists node_conditions_node_idx on node_conditions (node_id)
 create table if not exists figures (
   id          uuid primary key,
   document_id uuid not null references source_documents (id) on delete cascade,
-  manual      text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  manual      text not null,
   node_id     uuid references nodes (id) on delete set null,
   label       text not null,
   number      text not null,
@@ -103,7 +104,7 @@ create index if not exists figures_node_idx on figures (node_id);
 create table if not exists manual_tables (
   id          uuid primary key,
   document_id uuid not null references source_documents (id) on delete cascade,
-  manual      text not null check (manual in ('PPM', 'HDM', 'CADD')),
+  manual      text not null,
   node_id     uuid references nodes (id) on delete set null,
   label       text not null,
   number      text not null,
@@ -146,3 +147,96 @@ alter table node_conditions  enable row level security;
 alter table cross_refs       enable row level security;
 alter table figures          enable row level security;
 alter table manual_tables    enable row level security;
+
+-- Drawings: what the drawing reader found on each sheet. The images are in the bucket under drawings/<drawing id>/.
+-- Everything here was proposed by a model: review_state stays 'proposed' until an engineer verifies it.
+create table if not exists drawings (
+  id          uuid primary key,
+  name        text not null,
+  status      text not null check (status in ('uploaded', 'processing', 'processed', 'failed')),
+  error       text,
+  summary     jsonb,
+  uploaded_at timestamptz not null default now()
+);
+
+create table if not exists drawing_sheets (
+  id            uuid primary key,
+  drawing_id    uuid not null references drawings (id) on delete cascade,
+  number        int not null,
+  original_name text not null,
+  image_path    text not null,
+  content_type  text not null,
+  sha256        text not null,
+  size_bytes    bigint not null,
+  width         int not null,
+  height        int not null,
+  warnings      jsonb not null default '[]',
+  failures      jsonb not null default '[]',
+  unique (drawing_id, number)
+);
+
+create table if not exists drawing_features (
+  id           uuid primary key,
+  drawing_id   uuid not null references drawings (id) on delete cascade,
+  sheet_id     uuid not null references drawing_sheets (id) on delete cascade,
+  type         text not null,
+  label        text not null default '',
+  bbox         jsonb,
+  confidence   text not null check (confidence in ('high', 'medium', 'low')),
+  found_by     text not null check (found_by in ('sheet', 'tile')),
+  related      jsonb not null default '[]',
+  review_state text not null default 'proposed' check (review_state in ('proposed', 'verified'))
+);
+create index if not exists drawing_features_drawing_idx on drawing_features (drawing_id);
+
+create table if not exists drawing_notes (
+  id           uuid primary key,
+  drawing_id   uuid not null references drawings (id) on delete cascade,
+  sheet_id     uuid not null references drawing_sheets (id) on delete cascade,
+  text         text not null,
+  bbox         jsonb,
+  confidence   text not null check (confidence in ('high', 'medium', 'low')),
+  scope        text not null check (scope in ('feature', 'sheet', 'unbound')),
+  found_by     text not null check (found_by in ('sheet', 'tile')),
+  review_state text not null default 'proposed' check (review_state in ('proposed', 'verified'))
+);
+create index if not exists drawing_notes_drawing_idx on drawing_notes (drawing_id);
+
+create table if not exists drawing_note_bindings (
+  id           uuid primary key,
+  drawing_id   uuid not null references drawings (id) on delete cascade,
+  note_id      uuid not null references drawing_notes (id) on delete cascade,
+  feature_id   uuid not null references drawing_features (id) on delete cascade,
+  evidence     text not null check (evidence in ('leader_line', 'adjacent', 'label')),
+  confidence   text not null check (confidence in ('high', 'medium', 'low')),
+  image_path   text,
+  review_state text not null default 'proposed' check (review_state in ('proposed', 'verified'))
+);
+create index if not exists drawing_note_bindings_drawing_idx on drawing_note_bindings (drawing_id);
+
+create table if not exists drawing_facts (
+  id            uuid primary key,
+  drawing_id    uuid not null references drawings (id) on delete cascade,
+  sheet_id      uuid not null references drawing_sheets (id) on delete cascade,
+  feature_id    uuid references drawing_features (id) on delete cascade,
+  term          text not null,
+  status        text not null check (status in ('FOUND', 'NOT_FOUND')),
+  kind          text not null check (kind in ('direct', 'semantic')),
+  value         jsonb,
+  unit          text not null default '',
+  verbatim_text text not null default '',
+  bbox          jsonb,
+  confidence    text not null check (confidence in ('high', 'medium', 'low')),
+  confirmation  text not null check (confirmation in ('confirmed', 'disputed', 'not_checked')),
+  image_path    text,
+  produced_by   text not null,
+  review_state  text not null default 'proposed' check (review_state in ('proposed', 'verified'))
+);
+create index if not exists drawing_facts_drawing_idx on drawing_facts (drawing_id);
+
+alter table drawings enable row level security;
+alter table drawing_sheets enable row level security;
+alter table drawing_features enable row level security;
+alter table drawing_notes enable row level security;
+alter table drawing_note_bindings enable row level security;
+alter table drawing_facts enable row level security;
