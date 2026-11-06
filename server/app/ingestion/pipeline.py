@@ -81,10 +81,12 @@ def _chunk_and_save(
     }
 
     if embedder:
-        vectors = embedder.embed([f"{n.title}\n{n.text}".strip() for n in result.nodes])
-        for node, vec in zip(result.nodes, vectors, strict=True):
-            node.embedding = vec
+        vectors = _embed_each(embedder, [(n.id, f"{n.title}\n{n.text}".strip()) for n in result.nodes])
+        for node in result.nodes:
+            node.embedding = vectors.get(node.id)  # None for a node that failed: POST /embed retries it later
         stats["vectors"] = len(vectors)
+        if len(vectors) < len(result.nodes):
+            stats["vectors_failed"] = len(result.nodes) - len(vectors)
     else:
         stats["vectors"] = "skipped (EMBEDDING_PROVIDER=none)"
 
@@ -110,12 +112,35 @@ def _chunk_and_save(
     return stats
 
 
+def _embed_each(embedder: Embedder, items: list[tuple[str, str]]) -> dict[str, list[float]]:
+    """Vectors for (node id, text) pairs, as {id: vector}. A node that cannot be embedded is left out (and logged)
+    instead of failing the rest: if the whole batch fails, each node is retried on its own."""
+    if not items:
+        return {}
+    try:
+        return dict(zip((i for i, _ in items), embedder.embed([t for _, t in items]), strict=True))
+    except Exception:  # noqa: BLE001 - fall back to one node at a time to find the one that fails
+        log.exception("Embedding %d nodes in one go failed; retrying one by one.", len(items))
+    vectors: dict[str, list[float]] = {}
+    for node_id, text in items:
+        try:
+            vectors[node_id] = embedder.embed([text])[0]
+        except Exception:  # noqa: BLE001 - this node stays without a vector; the others still get theirs
+            log.exception("Embedding node %s failed; it stays without a vector.", node_id)
+    return vectors
+
+
 def embed_missing(repo: Repository, embedder: Embedder, doc: Document) -> int:
-    """Embeds the document's nodes that have no vector yet, without re-reading the PDF. Returns how many."""
+    """Embeds the document's nodes that have no vector yet, without re-reading the PDF. Returns how many got one.
+
+    Nodes that already have a vector are never touched. If a batch fails, each node is retried on its own, so one
+    bad node stays without a vector (and is logged) instead of blocking the rest. Running this again retries it.
+    """
     missing = repo.nodes_missing_embedding(doc.id)
-    if missing:
-        repo.save_embeddings(dict(zip((i for i, _ in missing), embedder.embed([t for _, t in missing]), strict=True)))
-    return len(missing)
+    vectors = _embed_each(embedder, missing)
+    if vectors:
+        repo.save_embeddings(vectors)
+    return len(vectors)
 
 
 def ingest_document(

@@ -38,7 +38,7 @@ app.add_middleware(
 async def http_error(_: Request, exc: HTTPException):
     return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
 
-
+ 
 @app.exception_handler(RequestValidationError)
 async def validation_error(_: Request, exc: RequestValidationError):
     problems = "; ".join(f"{'.'.join(str(p) for p in e['loc'][1:])}: {e['msg']}" for e in exc.errors())
